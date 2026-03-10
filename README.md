@@ -1,178 +1,241 @@
-# sbom-checker
+# sbom-utils
+
+Набор CLI-инструментов для валидации, обогащения, объединения и экспорта SBOM-файлов (Software Bill of Materials) в формате CycloneDX JSON с поддержкой расширений ГОСТ.
 
 ## Требования
-* Python3.8 или выше
 
-## Подготовка окружения
-1. Создать и активировать виртуальное окружение.
+* Python 3.12 или выше
+* [uv](https://docs.astral.sh/uv/) (рекомендуемый менеджер пакетов)
+* Для `--check-vcs`: git, subversion, mercurial (опционально)
+
+## Установка
+
+```bash
+# Через uv (рекомендуется)
+uv pip install -e .
+
+# Или через pip
+pip install -e .
 ```
-python3 -m venv venv
-source venv/bin/activate
-```
-2. Установить необходимые библиотеки.
-```
-pip install -r requirements.txt
+
+После установки доступны следующие команды:
+
+| Команда              | Описание                                         |
+|----------------------|--------------------------------------------------|
+| `sbom-checker`       | Валидация SBOM по JSON Schema (CycloneDX 1.6)   |
+| `sbom-updater`       | Обогащение SBOM: VCS-ссылки, GOST-свойства      |
+| `sbom-unifier`       | Объединение нескольких SBOM в один               |
+| `sbom-to-csv`        | Экспорт SBOM в CSV                               |
+| `sbom-to-odt`        | Экспорт SBOM в ODT (LibreOffice)                 |
+| `cdxgen-postprocess`  | Постобработка вывода cdxgen                      |
+
+Запуск без установки:
+```bash
+python -m sbom_utils.checker <file.json>
 ```
 
 ## Использование
 
 ### sbom-checker
 
+Валидация SBOM по JSON Schema с опциональной проверкой VCS-URL и source-distribution.
+
 ```
-prompt> python sbom-checker.py --help
+sbom-checker [-h] [-e ERRORS] [--check-vcs] [--check-vcs-leaf-only]
+             [--check-source-distribution] [--format FORMAT] [-v]
+             filename
+```
 
-usage: sbom-checker.py [-h] [-e ERRORS] [--check-vcs] filename
+| Аргумент                       | Описание                                                                                                |
+|--------------------------------|---------------------------------------------------------------------------------------------------------|
+| `filename`                     | Входной файл в формате CycloneDX JSON для проверки                                                     |
+| `-e, --errors ERRORS`          | Максимальное число ошибок для вывода; по умолчанию 10; установите 0 для вывода всех ошибок              |
+| `--check-vcs`                  | Проверка URL типа vcs на git/svn/hg/fossil-репозиторий (требуется доступ к Интернет)                    |
+| `--check-vcs-leaf-only`        | То же, что и `--check-vcs`, но проверяются только URL в листовых компонентах                            |
+| `--check-source-distribution`  | Проверка URL типа source-distribution: существование ссылки и что она указывает на архив                |
+| `--format FORMAT`              | `oss` (по умолчанию) — перечень OSS-компонентов; `container` — перечень образов контейнеров             |
+| `-v, --verbose`                | Подробный вывод                                                                                         |
 
-проверка sbom-файлов
-
-positional arguments:
-  filename              входной файл в формате CycloneDX JSON для проверки
-
-options:
-  -h, --help            show this help message and exit
-  -e ERRORS, --errors ERRORS
-                        максимальное число ошибок для вывода; по умолчанию 10;
-                        установите 0 для вывода всех ошибок
-  --check-vcs           проверка url типа vcs на git/svn/hg/fossil-репозиторий
-                        (требуется доступ к Интернет и наличие пакетов git,
-                        subversion и mercurial)
-  --check-vcs-leaf-only
-                        то же, что и --check-vcs, но проверяются только url в
-                        листовых компонентах
-  --check-source-distribution
-                        проверка url типа source-distribution; проверяется
-                        существование ссылки, и что ссылка указывает на архив
-  --format FORMAT       --format=oss для проверки файла-перечня заимствованных
-                        программных компонентов с открытым исходным кодом;
-                        --format=container для проверки файла-перечня образов
-                        контейнеров; по умолчанию oss
-  -v, --verbose         подробный вывод
+Примеры:
+```bash
+sbom-checker sbom.json
+sbom-checker sbom.json --check-vcs --format=oss -e 0
+sbom-checker sbom.json --check-vcs-leaf-only --check-source-distribution
 ```
 
 ### sbom-updater
 
+Обогащение SBOM: поиск VCS-ссылок через ecosystems.ms / NuGet / RubyGems, добавление GOST-свойств, перенос метаинформации из предыдущей версии SBOM.
+
 ```
-prompt> python sbom-updater.py --help
-
-usage: sbom-updater.py [-h] [--props] [--app-name APP_NAME]
-                       [--app-version APP_VERSION]
-                       [--manufacturer MANUFACTURER] [--ref] [--fix-all]
-                       [--update OLD_SBOM] [-v]
-                       input output
-
-изменение sbom-файлов
-
-positional arguments:
-  input                 входной файл в формате CycloneDX JSON, содержащий
-                        актуальную информацию о составе заимствованных
-                        компонентов
-  output                выходной файл с дооформленным переченем заимствованных
-                        компонентов
-
-options:
-  -h, --help            show this help message and exit
-  --props               добавить {"name": "GOST:attack_surface", "value":
-                        "yes"} и {"name": "GOST:security_function", "value":
-                        "yes"} в поле "properties" для каждого компонента
-                        входного файла, при их отсутствии
-  --app-name APP_NAME   установить название продукта
-  --app-version APP_VERSION
-                        установить версию продукта
-  --manufacturer MANUFACTURER
-                        установить название организации — изготовителя
-                        продукта
-  --ref                 установить поле "externalReferences", основываясь на
-                        поле "purl" компонента; если ссылки на репозиторий не
-                        было найдено, используется "sbom-updater_generated_placeholder:"
-  --fix-all             применить все вышеописанные опции; если необходимое
-                        поле остутствует и его значение не указано,
-                        используется "TODO"
-  --update OLD_SBOM     предыдущая версия перечня заимствованных компонентов,
-                        состав и версии которых могли устареть, но
-                        метаинформацию о приложении и компонентах требуется по
-                        возможности перенести в новый перечень
-  -v, --verbose         подробный вывод
+sbom-updater [-h] [--props] [--app-name APP_NAME] [--app-version APP_VERSION]
+             [--manufacturer MANUFACTURER] [--ref] [--purl-to-vcs FILE]
+             [--gost] [--purl-to-gost FILE] [--init-gost-map] [--init-purl-map]
+             [--fix-all] [--update OLD_SBOM] [-v]
+             input [output]
 ```
+
+| Аргумент                          | Описание                                                                                                     |
+|-----------------------------------|--------------------------------------------------------------------------------------------------------------|
+| `input`                           | Входной файл в формате CycloneDX JSON                                                                       |
+| `output`                          | Выходной файл (обязателен, если не указаны `--init-purl-map` / `--init-gost-map`)                           |
+| `--props`                         | Добавить GOST:attack_surface и GOST:security_function (по умолчанию `"yes"`) при их отсутствии              |
+| `--app-name APP_NAME`             | Установить название продукта                                                                                 |
+| `--app-version APP_VERSION`       | Установить версию продукта                                                                                   |
+| `--manufacturer MANUFACTURER`     | Установить название организации-изготовителя                                                                 |
+| `--ref`                           | Заполнить externalReferences на основе purl компонента                                                       |
+| `--purl-to-vcs FILE`              | Путь к файлу маппинга purl → VCS                                                                            |
+| `--gost`                          | Установить GOST-свойства на основе файла маппинга purl → GOST                                               |
+| `--purl-to-gost FILE`             | Путь к файлу маппинга purl → GOST                                                                           |
+| `--init-purl-map`                 | Сгенерировать шаблон `.purl_to_vcs.json` из purl компонентов                                                |
+| `--init-gost-map`                 | Сгенерировать шаблон `.purl_to_gost.json` из purl компонентов                                               |
+| `--fix-all`                       | Применить все вышеописанные опции; если значение не указано — используется `"TODO"`                          |
+| `--update OLD_SBOM`               | Предыдущая версия SBOM для переноса метаинформации                                                           |
+| `-v, --verbose`                   | Подробный вывод                                                                                               |
+
+Примеры:
+```bash
+sbom-updater input.json output.json --fix-all
+sbom-updater input.json output.json --ref --props
+sbom-updater input.json --init-purl-map
+sbom-updater input.json output.json --gost --purl-to-gost custom_gost.json
+sbom-updater new.json updated.json --update old.json
+```
+
 #### purl_to_vcs.json
 
-Данный файл используется для заполнения поля `"externalReferences"` компонент на основе purl при использовании скрипта с опциями `--ref` или `--fix-all`.
-Содержимое файла должно представлять единственный объект, в котором ключ — purl, а значение — ссылка на репозиторий, где хранятся исходные файлы компонента.
+Файл маппинга purl → URL репозитория для заполнения поля `externalReferences` при использовании `--ref` или `--fix-all`.
+
+Приоритет поиска: аргумент `--purl-to-vcs` → локальный `.purl_to_vcs.json` → встроенный файл пакета.
 
 Пример содержания:
-```
+```json
 {
   "pkg:gem/aasm@5.5.0": "https://github.com/aasm/aasm",
   "pkg:nuget/NLog.Extensions.Logging@5.3.12": "https://github.com/NLog/NLog.Extensions.Logging"
 }
 ```
 
+#### purl_to_gost.json
+
+Файл маппинга purl → GOST-свойства для заполнения при использовании `--gost`. Шаблон можно сгенерировать с помощью `--init-gost-map`.
+
 ### sbom-unifier
 
+Объединение нескольких SBOM в один с агрегацией GOST-свойств. Значения GOST-свойств объединяются по приоритету: `yes` > `indirect` > `no`.
+
 ```
-prompt> python sbom-unifier.py --help
+sbom-unifier [-h] --app-name APP_NAME --app-version APP_VERSION
+             --manufacturer MANUFACTURER
+             input [input ...] output
+```
 
-usage: sbom-unifier.py [-h] --app-name APP_NAME --app-version APP_VERSION
-                       --manufacturer MANUFACTURER
-                       input [input ...] output
+| Аргумент                          | Описание                                                     |
+|-----------------------------------|--------------------------------------------------------------|
+| `input`                           | Один или несколько входных файлов в формате CycloneDX JSON   |
+| `output`                          | Выходной файл с объединённым перечнем                        |
+| `--app-name APP_NAME`             | Название продукта (обязательный)                             |
+| `--app-version APP_VERSION`       | Версия продукта (обязательный)                               |
+| `--manufacturer MANUFACTURER`     | Название организации-изготовителя (обязательный)             |
 
-объединение sbom-файлов
-
-positional arguments:
-  input                 перечень входных файлов в формате CycloneDX JSON для
-                        объединения; рекомендуется использовать файлы,
-                        проверенные скриптом sbom-checker.py
-  output                выходной файл, в котором продукты из входных файлов
-                        объединены в список компонентов
-
-options:
-  -h, --help            show this help message and exit
-  --app-name APP_NAME   название продукта
-  --app-version APP_VERSION
-                        версия продукта
-  --manufacturer MANUFACTURER
-                        название организации — изготовителя продукта
+Примеры:
+```bash
+sbom-unifier sbom1.json sbom2.json merged.json \
+  --app-name "МойПродукт" --app-version "1.0.0" --manufacturer "ООО Рога и Копыта"
 ```
 
 ### sbom-to-csv
 
+Экспорт SBOM в таблицу CSV.
+
 ```
-prompt> python sbom-to-csv.py --help
-
-usage: sbom-to-csv.py [-h] input output
-
-генератор таблицы компонентов в формате csv
-
-positional arguments:
-  input       входной файл, содержащий перечень заимствованных компонентов, в
-              JSON формате
-  output      выходной файл в формате csv, содержащий таблицу со всеми
-              компонентами из входного файла
-
-options:
-  -h, --help  show this help message and exit
+sbom-to-csv [-h] input output
 ```
+
+| Аргумент  | Описание                                     |
+|-----------|----------------------------------------------|
+| `input`   | Входной файл в формате CycloneDX JSON        |
+| `output`  | Выходной файл в формате CSV                  |
+
+Столбцы CSV: № п/п, Наименование компонента, Версия, Язык(и) программирования, Принадлежность к ПА/ФБ, Адрес веб-ресурса.
 
 ### sbom-to-odt
 
-```
-prompt> python sbom-to-odt.py --help
-
-usage: sbom-to-odt.py [-h] input output
-
-генератор таблицы компонентов в формате odt
-
-positional arguments:
-  input       входной файл, содержащий перечень заимствованных компонентов, в
-              JSON формате
-  output      выходной файл в формате odt, содержащий таблицу со всеми
-              компонентами из входного файла
-
-options:
-  -h, --help  show this help message and exit
-  -t, --pa-fb-ontop  помещение записей "ПА" и "ФБ" в топ таблицы
-  --format FORMAT    --format=oss если входной файл — перечень заимствованных
-                     программных компонентов с открытым исходным кодом;
-                     --format=container если входной файл — перечень образов
-                     контейнеров; по умолчанию oss
+Экспорт SBOM в документ формата ODT (LibreOffice Writer).
 
 ```
+sbom-to-odt [-h] [-t] [--format FORMAT] input output
+```
+
+| Аргумент           | Описание                                                                          |
+|--------------------|-----------------------------------------------------------------------------------|
+| `input`            | Входной файл в формате CycloneDX JSON                                            |
+| `output`           | Выходной файл в формате ODT                                                      |
+| `-t, --pa-fb-ontop`| Помещение записей «ПА» и «ФБ» в начало таблицы                                   |
+| `--format FORMAT`  | `oss` (по умолчанию) — OSS-компоненты; `container` — образы контейнеров           |
+
+### cdxgen-postprocess
+
+Постобработка вывода [cdxgen](https://github.com/CycloneDX/cdxgen): очистка лишних полей, нормализация GOST-свойств, заполнение метаданных.
+
+```
+cdxgen-postprocess [-h] [--app-name APP_NAME] [--app-version APP_VERSION]
+                   [--manufacturer MANUFACTURER] [--gost-default {yes,no,indirect}]
+                   [--strip-only] [--keep-all-fields] [--provided-by NAME]
+                   [--purl-to-vcs FILE] [--purl-to-gost FILE] [--pretty]
+                   input output
+```
+
+| Аргумент                          | Описание                                                                    |
+|-----------------------------------|-----------------------------------------------------------------------------|
+| `input`                           | Входной файл BOM (JSON) от cdxgen                                          |
+| `output`                          | Выходной файл с обработанным BOM                                           |
+| `--app-name APP_NAME`             | Название продукта                                                           |
+| `--app-version APP_VERSION`       | Версия продукта                                                             |
+| `--manufacturer MANUFACTURER`     | Организация-изготовитель                                                    |
+| `--gost-default {yes,no,indirect}`| Значение ГОСТ-свойств по умолчанию (по умолчанию `no`)                     |
+| `--strip-only`                    | Только очистить лишние поля, не изменяя metadata                            |
+| `--keep-all-fields`               | Не удалять необязательные поля компонентов                                  |
+| `--provided-by NAME`              | Установить GOST:provided_by для листовых компонентов                        |
+| `--purl-to-vcs FILE`              | Путь к файлу маппинга purl → VCS (по умолчанию `.purl_to_vcs.json`)        |
+| `--purl-to-gost FILE`             | Путь к файлу маппинга purl → GOST (по умолчанию `.purl_to_gost.json`)      |
+| `--pretty`                        | Форматировать JSON (включено по умолчанию)                                  |
+
+Примеры:
+```bash
+cdxgen-postprocess bom.json clean.json --app-name "App" --app-version "1.0" --manufacturer "Org"
+cdxgen-postprocess bom.json clean.json --strip-only
+cdxgen-postprocess bom.json clean.json --gost-default=indirect --provided-by "ООО Поставщик"
+```
+
+## GOST-свойства
+
+Инструменты поддерживают расширения CycloneDX для ГОСТ:
+
+| Свойство                  | Допустимые значения       | Описание                           |
+|---------------------------|---------------------------|------------------------------------|
+| `GOST:attack_surface`     | `yes`, `no`, `indirect`   | Принадлежность к поверхности атаки |
+| `GOST:security_function`  | `yes`, `no`, `indirect`   | Функция безопасности               |
+| `GOST:source_langs`       | строка                    | Языки программирования             |
+| `GOST:provided_by`        | строка                    | Поставщик компонента               |
+
+## Структура проекта
+
+```
+sbom_utils/
+├── checker.py              # Валидация SBOM
+├── updater.py              # Обогащение SBOM
+├── unifier.py              # Объединение SBOM
+├── to_csv.py               # Экспорт в CSV
+├── to_odt.py               # Экспорт в ODT
+├── cdxgen_postprocess.py   # Постобработка cdxgen
+├── sbom_utils.py           # Общие утилиты
+├── schemas/                # JSON Schema (CycloneDX 1.6)
+├── additional_schemas/     # Внешние схемы (SPDX, JSF)
+├── odt_templates/          # Шаблоны ODT-документов
+└── purl_to_vcs.json        # Встроенный маппинг purl → VCS
+```
+
+## Лицензия
+
+Apache-2.0

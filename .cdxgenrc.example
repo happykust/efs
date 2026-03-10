@@ -1,0 +1,11 @@
+{
+  "spec-version": "1.6",
+  "profile": "generic",
+  "required-only": true,
+  "include-formulation": false,
+  "include-crypto": false,
+  "auto-compositions": false,
+  "no-babel": true,
+  "json-pretty": true,
+  "output": "bom.json"
+}

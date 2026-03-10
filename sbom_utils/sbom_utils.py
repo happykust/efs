@@ -198,18 +198,18 @@ def dump_cache(type, data):
 def is_archive_url(url, timeout=10):
     """Проверяет, является ли URL архивом"""
     archive_mime_types = {
-        'application/zip', 'application/x-rar-compressed', 
+        'application/zip', 'application/x-rar-compressed',
         'application/x-7z-compressed', 'application/x-tar',
-        'application/gzip', 'application/x-bzip2', 
+        'application/gzip', 'application/x-bzip2',
         'application/x-xz', 'application/x-zip-compressed',
         'application/octet-stream', 'application/x-msdownload',
         'application/x-rpm', 'application/java-archive',
         'application/vnd.rar', 'application/zstd'
     }
-    
+
     archive_extensions = {
-        '.zip', '.rar', '.7z', '.tar', '.gz', '.bz2', 
-        '.xz', '.tgz', '.tbz2', '.tar.gz', '.tar.bz2', 
+        '.zip', '.rar', '.7z', '.tar', '.gz', '.bz2',
+        '.xz', '.tgz', '.tbz2', '.tar.gz', '.tar.bz2',
         '.tar.xz', '.zipx', '.iso', '.cab', '.arj', '.src.rpm', '.jar',
         '.tar.lz', '.tlz', '.tar.Z', '.Z', '.tar.lzma', '.whl', '.rpm',
         '.src.rock', '.cpio', '.tzr.zst', '.zst'
@@ -259,7 +259,7 @@ def is_archive_url(url, timeout=10):
                     else:
                         result = True
         return result, '\n'.join(exc_list)
-    
+
     except Exception as e:
         exc_list.append(f"ERROR: {str(e)}")
         result = False

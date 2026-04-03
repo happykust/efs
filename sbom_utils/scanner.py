@@ -19,6 +19,8 @@ console = Console()
 
 SUPPORTED_TOOLS = ("cdxgen", "trivy")
 
+_SCAN_TIMEOUT = 600  # 10 минут — сканирование может быть долгим
+
 _CDXGENRC_DEFAULTS = {
     "spec-version": "1.6",
     "profile": "generic",
@@ -53,23 +55,30 @@ def run_cdxgen(target: str, output: str, options: dict | None = None) -> bool:
 
     options = options or {}
 
-    # Записать .cdxgenrc
+    # Записать .cdxgenrc (обновляем из options конфига)
     cdxgenrc = _CDXGENRC_DEFAULTS.copy()
     cdxgenrc.update(options)
     cdxgenrc["output"] = output
 
     cdxgenrc_path = Path.cwd() / ".cdxgenrc"
+    if cdxgenrc_path.exists():
+        console.print(f"[dim]Обновлён {cdxgenrc_path}[/dim]")
     cdxgenrc_path.write_text(
         json.dumps(cdxgenrc, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
 
     console.print(f"Запуск cdxgen: target={target}, output={output}")
-    result = subprocess.run(
-        ["cdxgen", "-o", output, target],
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            ["cdxgen", "-o", output, target],
+            capture_output=True,
+            text=True,
+            timeout=_SCAN_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        console.print(f"[red]✗[/red] cdxgen превысил таймаут ({_SCAN_TIMEOUT} сек)")
+        return False
 
     if result.returncode == 0:
         console.print(f"[green]✓[/green] SBOM сохранён: {output}")
@@ -104,7 +113,11 @@ def run_trivy(target: str, output: str, options: dict | None = None) -> bool:
     ]
 
     console.print(f"Запуск trivy: {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=_SCAN_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        console.print(f"[red]✗[/red] trivy превысил таймаут ({_SCAN_TIMEOUT} сек)")
+        return False
 
     if result.returncode == 0:
         console.print(f"[green]✓[/green] SBOM сохранён: {output}")

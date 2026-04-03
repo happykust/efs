@@ -237,7 +237,7 @@ def cmd_scan(
     output: Optional[str] = typer.Option(None, "--output", "-o", help="выходной файл SBOM"),
     config: Optional[str] = typer.Option(None, "--config", help="путь к .sbom-config.json"),
 ):
-    from sbom_utils.config import load_config
+    from sbom_utils.config import load_config, get_scanner_config
     from sbom_utils.scanner import run_scan, SUPPORTED_TOOLS
 
     cfg = load_config(config)
@@ -249,7 +249,7 @@ def cmd_scan(
         run_wizard(verbose=state["verbose"])
         return
 
-    scanner_cfg = cfg.get("scanner", {})
+    scanner_cfg = get_scanner_config(cfg)
 
     # CLI-флаги переопределяют конфиг
     scan_tool = tool or scanner_cfg.get("tool", "cdxgen")

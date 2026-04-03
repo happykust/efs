@@ -15,8 +15,7 @@ from .sbom_utils import check_repo, opener, parse_repo_url, load_cache, dump_cac
 _PKG_DIR = Path(__file__).parent.resolve()
 
 
-def main():
-    parser = argparse.ArgumentParser(description='проверка sbom-файлов')
+def configure_parser(parser):
     parser.add_argument('filename', help='входной файл в формате CycloneDX JSON для проверки')
     parser.add_argument('-e', '--errors', type=int, default=10,
                         help='максимальное число ошибок для вывода; по умолчанию 10; установите 0 для вывода всех ошибок')
@@ -25,7 +24,11 @@ def main():
     parser.add_argument('--check-source-distribution', action='store_true', help='проверка существования URL для типа source-distribution и проверка того, что по указанной URL находится архив')
     parser.add_argument('--format', type=str, default='oss',
                         help='--format=oss для проверки файла-перечня заимствованных программных компонентов с открытым исходным кодом; --format=container для проверки файла-перечня образов контейнеров; по умолчанию oss')
-    parser.add_argument('-v', '--verbose', action='store_true', help='подробный вывод')
+
+
+def run(args):
+    if getattr(args, 'verbose', False):
+        logging.basicConfig(format='%(message)s', level="INFO")
 
     registry = None
     with open(_PKG_DIR / 'additional_schemas' / "spdx.schema.json") as f:
@@ -38,10 +41,6 @@ def main():
             ("jsf-0.82.schema.json", resource2),
         ],
     )
-
-    args = parser.parse_args()
-    if args.verbose:
-        logging.basicConfig(format='%(message)s', level="INFO")
 
     # encoding and duplicate keys detection
     data, encoding = opener(args.filename, pairs=True)
@@ -195,6 +194,14 @@ def main():
     except jsonschema.exceptions.SchemaError as se:
         print('ошибка в файле-спецификации:')
         print(se)
+
+
+def main():
+    parser = argparse.ArgumentParser(description='проверка sbom-файлов')
+    parser.add_argument('-v', '--verbose', action='store_true', help='подробный вывод')
+    configure_parser(parser)
+    args = parser.parse_args()
+    run(args)
 
 
 if __name__ == '__main__':

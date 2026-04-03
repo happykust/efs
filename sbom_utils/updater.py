@@ -7,6 +7,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import sys
 from requests import Session, adapters
 import xml.etree.ElementTree as ET
 
@@ -239,8 +240,24 @@ class RefFinder(object):
         return urls
 
 
-def _extract_purls(filenames):
-    """Извлечь все purl из списка SBOM-файлов."""
+def _has_provided_by(component):
+    """Проверить наличие свойства GOST:provided_by у компонента."""
+    for p in component.get('properties', []):
+        if p.get('name') == 'GOST:provided_by' and p.get('value'):
+            return True
+    return False
+
+
+def _extract_purls(filenames, skip_provided_by=False, purl_to_gost=None):
+    """Извлечь все purl из списка SBOM-файлов.
+
+    Если skip_provided_by=True, пропускает компоненты, у которых установлено
+    свойство GOST:provided_by (в properties компонента или в маппинге purl_to_gost).
+    """
+    provided_by_purls = set()
+    if skip_provided_by and purl_to_gost:
+        provided_by_purls = {k for k, v in purl_to_gost.get('GOST:provided_by', {}).items() if v}
+
     purls = set()
     for fn in filenames:
         data, _ = opener(fn)
@@ -250,13 +267,16 @@ def _extract_purls(filenames):
             if 'components' in comp:
                 stack += comp['components']
             purl = comp.get('purl', '')
-            if purl:
-                purls.add(purl)
+            if not purl:
+                continue
+            if skip_provided_by:
+                if _has_provided_by(comp) or purl in provided_by_purls:
+                    continue
+            purls.add(purl)
     return sorted(purls)
 
 
-def main():
-    parser = argparse.ArgumentParser(description='изменение sbom-файлов')
+def configure_parser(parser):
     parser.add_argument('input', help='входной файл в формате CycloneDX JSON, содержащий актуальную информацию о составе заимствованных компонентов')
     parser.add_argument('output', nargs='?', default=None, help='выходной файл с дооформленным переченем заимствованных компонентов')
     parser.add_argument('--props', action='store_true',
@@ -271,22 +291,26 @@ def main():
     parser.add_argument('--purl-to-gost', metavar='PATH', help=f'путь к файлу маппинга purl→GOST (по умолчанию ищется {_PURL_TO_GOST_FILENAME} в текущей директории)')
     parser.add_argument('--init-gost-map', action='store_true', help=f'сгенерировать шаблон {_PURL_TO_GOST_FILENAME} из purl компонентов входного файла; существующие маппинги сохраняются; output игнорируется')
     parser.add_argument('--init-purl-map', action='store_true', help=f'сгенерировать шаблон {_PURL_TO_VCS_FILENAME} из purl компонентов входного файла (input); существующие маппинги сохраняются; output игнорируется')
+    parser.add_argument('-i', '--extra-input', nargs='*', default=[], metavar='FILE', help='дополнительные SBOM-файлы для --init-purl-map и --init-gost-map')
     parser.add_argument('--fix-all', action='store_true', help=f'применить все вышеописанные опции; если необходимое поле остутствует и его значение не указано, используется "{DEFAULT_VALUE}"')
     parser.add_argument('--update', metavar='OLD_SBOM', help='предыдущая версия перечня заимствованных компонентов, состав и версии которых могли устареть, но метаинформацию о приложении и компонентах требуется по возможности перенести в новый перечень')
-    parser.add_argument('-v', '--verbose', action='store_true', help='подробный вывод')
 
-    args = parser.parse_args()
-    if args.verbose:
+
+def run(args):
+    if getattr(args, 'verbose', False):
         logging.basicConfig(format='%(message)s', level="INFO")
 
     if not args.init_purl_map and not args.init_gost_map and not args.output:
-        parser.error('аргумент output обязателен (если не используется --init-purl-map или --init-gost-map)')
+        print('ошибка: аргумент output обязателен (если не используется --init-purl-map или --init-gost-map)')
+        sys.exit(1)
+
+    extra = getattr(args, 'extra_input', None) or []
 
     if args.init_gost_map:
-        purls = _extract_purls([args.input])
+        purls = _extract_purls([args.input] + extra)
         out_path = Path.cwd() / _PURL_TO_GOST_FILENAME
         existing = {}
-        if out_path.is_file():
+        if out_path.is_file() and out_path.stat().st_size > 0:
             with open(out_path) as f:
                 existing = json.load(f)
         purl_set = set(purls)
@@ -328,10 +352,11 @@ def main():
             return
 
     if args.init_purl_map:
-        purls = _extract_purls([args.input])
+        purl_to_gost = _load_purl_to_gost(getattr(args, 'purl_to_gost', None))
+        purls = _extract_purls([args.input] + extra, skip_provided_by=True, purl_to_gost=purl_to_gost)
         out_path = Path.cwd() / _PURL_TO_VCS_FILENAME
         existing = {}
-        if out_path.is_file():
+        if out_path.is_file() and out_path.stat().st_size > 0:
             with open(out_path) as f:
                 existing = json.load(f)
         purl_set = set(purls)
@@ -515,6 +540,14 @@ def main():
         input_data['version'] += 1
     with open(args.output, 'w', encoding=encoding) as f:
         json.dump(input_data, f, indent=2, ensure_ascii=False)
+
+
+def main():
+    parser = argparse.ArgumentParser(description='изменение sbom-файлов')
+    parser.add_argument('-v', '--verbose', action='store_true', help='подробный вывод')
+    configure_parser(parser)
+    args = parser.parse_args()
+    run(args)
 
 
 if __name__ == '__main__':

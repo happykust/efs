@@ -30,14 +30,15 @@ def eval_prop(components, name):
     return ''
 
 
-def main():
-    parser = argparse.ArgumentParser(description='объединение sbom-файлов')
+def configure_parser(parser):
     parser.add_argument('--app-name', required=True, help='название продукта')
     parser.add_argument('--app-version', required=True, help='версия продукта')
     parser.add_argument('--manufacturer', required=True, help='название организации — изготовителя продукта')
     parser.add_argument('input', nargs='+', help='перечень входных файлов в формате CycloneDX JSON для объединения; рекомендуется использовать файлы, проверенные скриптом sbom-checker.py')
     parser.add_argument('output', help='выходной файл, в котором продукты из входных файлов объединены в список компонентов')
 
+
+def run(args):
     with open(_PKG_DIR / 'schemas' / 'schema.json') as f:
         schema = json.load(f)
         keys = set(schema['properties']).intersection(schema['$defs']['component']['properties'])
@@ -48,7 +49,6 @@ def main():
         if 'type' in keys:
             keys.remove('type')
 
-    args = parser.parse_args()
     all_components = []
     for fn in args.input:
         data, encoding = opener(fn)
@@ -90,6 +90,13 @@ def main():
 
     with open(args.output, 'w', encoding=encoding) as f:
         json.dump(output_data, f, indent=2, ensure_ascii=False)
+
+
+def main():
+    parser = argparse.ArgumentParser(description='объединение sbom-файлов')
+    configure_parser(parser)
+    args = parser.parse_args()
+    run(args)
 
 
 if __name__ == '__main__':

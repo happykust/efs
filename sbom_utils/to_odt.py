@@ -20,15 +20,15 @@ def get_ext_ref(er_list):
     return ''
 
 
-def main():
-    parser = argparse.ArgumentParser(description='генератор таблицы компонентов в формате odt')
+def configure_parser(parser):
     parser.add_argument('input', help='входной файл, содержащий перечень заимствованных компонентов, в JSON формате')
     parser.add_argument('output', help='выходной файл в формате odt, содержащий таблицу со всеми компонентами из входного файла')
     parser.add_argument('-t', '--pa-fb-ontop', action='store_true', help='помещение записей "ПА" и "ФБ" в топ таблицы')
     parser.add_argument('--format', type=str, default='oss',
                         help='--format=oss если входной файл — перечень заимствованных программных компонентов с открытым исходным кодом; --format=container если входной файл — перечень образов контейнеров; по умолчанию oss')
 
-    args = parser.parse_args()
+
+def run(args):
     input_data, encoding = opener(args.input)
 
     idx = 1
@@ -150,6 +150,13 @@ def main():
                 idx += 1
 
     doc.save(args.output)
+
+
+def main():
+    parser = argparse.ArgumentParser(description='генератор таблицы компонентов в формате odt')
+    configure_parser(parser)
+    args = parser.parse_args()
+    run(args)
 
 
 if __name__ == '__main__':

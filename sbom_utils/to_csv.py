@@ -6,12 +6,12 @@ import csv, argparse
 from .sbom_utils import opener, get_prop, combine_source_langs
 
 
-def main():
-    parser = argparse.ArgumentParser(description='генератор таблицы компонентов в формате csv')
+def configure_parser(parser):
     parser.add_argument('input', help='входной файл, содержащий перечень заимствованных компонентов, в JSON формате')
     parser.add_argument('output', help='выходной файл в формате csv, содержащий таблицу со всеми компонентами из входного файла')
-    args = parser.parse_args()
 
+
+def run(args):
     bom_json, encoding = opener(args.input)
 
     with open(args.output, 'w', newline="") as file:
@@ -51,6 +51,13 @@ def main():
             writer = csv.writer(file)
             writer.writerow([idx, component['name'], component['version'], combine_source_langs(get_prop(props, 'GOST:source_langs'), get_prop(props, 'source_langs')), special_function, urls])
         idx += 1
+
+
+def main():
+    parser = argparse.ArgumentParser(description='генератор таблицы компонентов в формате csv')
+    configure_parser(parser)
+    args = parser.parse_args()
+    run(args)
 
 
 if __name__ == '__main__':

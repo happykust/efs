@@ -34,8 +34,8 @@ python -m sbom_utils.cli <команда> [аргументы]
 Типичный рабочий процесс:
 
 ```bash
-# 1. Сгенерировать SBOM через cdxgen
-cdxgen -o bom.json .
+# 1. Сгенерировать SBOM (cdxgen или trivy — настраивается в конфиге)
+sbom scan
 
 # 2. Создать конфиг из SBOM (для нового проекта)
 sbom config init bom.json
@@ -63,6 +63,12 @@ sbom init
 
 ```json
 {
+  "scanner": {
+    "tool": "cdxgen",
+    "output": "bom.json",
+    "target": ".",
+    "options": {}
+  },
   "defaults": {
     "manufacturer": {"name": "ООО МояКомпания"},
     "provided_by": "ООО МояКомпания",
@@ -99,6 +105,15 @@ sbom init
 ```
 
 ### Поля конфига
+
+**scanner** — настройки инструмента генерации SBOM:
+
+| Поле | Описание |
+|------|----------|
+| `tool` | Инструмент: `cdxgen` или `trivy` |
+| `output` | Имя выходного SBOM-файла |
+| `target` | Путь к исходникам или имя Docker-образа |
+| `options` | Специфичные для инструмента параметры |
 
 **defaults** — значения по умолчанию для всех компонентов:
 
@@ -288,9 +303,49 @@ sbom export odt <input.json> <output.odt> [--format oss|container] [-t]
 | `-t, --pa-fb-ontop` | Помещение записей «ПА» и «ФБ» в начало таблицы (только ODT) |
 | `--format FORMAT` | `oss` (по умолчанию) или `container` (только ODT) |
 
+### sbom scan
+
+Генерация SBOM с помощью cdxgen или trivy. Читает настройки из секции `scanner` конфига `.sbom-config.json`. Если конфиг не найден — запускает `sbom init`.
+
+```bash
+sbom scan [--tool cdxgen|trivy] [--target PATH] [--output FILE] [--config PATH]
+```
+
+| Аргумент | Описание |
+|----------|----------|
+| `--tool` | Инструмент: `cdxgen` или `trivy` (из конфига по умолчанию) |
+| `--target` | Путь к исходникам или имя образа (из конфига по умолчанию) |
+| `--output` | Выходной файл SBOM (из конфига по умолчанию) |
+| `--config` | Путь к `.sbom-config.json` |
+
+Секция `scanner` в конфиге:
+
+```json
+{
+  "scanner": {
+    "tool": "trivy",
+    "output": "bom.json",
+    "target": ".",
+    "options": {
+      "command": "fs",
+      "args": ["--scanners", "license"]
+    }
+  }
+}
+```
+
+Для cdxgen `options` записываются в `.cdxgenrc`. Для trivy: `command` — подкоманда (`fs`, `image`, `repo`), `args` — дополнительные флаги CLI.
+
+```bash
+sbom scan                        # всё из конфига
+sbom scan --tool trivy           # переопределить инструмент
+sbom scan --target ./src         # переопределить цель
+sbom scan --output my-bom.json   # переопределить выходной файл
+```
+
 ### sbom init
 
-Интерактивный мастер инициализации SBOM-проекта: настройка `.cdxgenrc`, генерация SBOM, создание конфига, поиск VCS-ссылок.
+Интерактивный мастер инициализации SBOM-проекта: выбор инструмента (cdxgen/trivy), генерация SBOM, создание конфига, поиск VCS-ссылок.
 
 ```bash
 sbom init
@@ -321,6 +376,7 @@ sbom config migrate
 sbom_utils/
 ├── cli.py                  # Единая CLI-точка входа (typer)
 ├── config.py               # Единый конфиг .sbom-config.json
+├── scanner.py              # Запуск SBOM-сканеров (cdxgen, trivy)
 ├── checker.py              # Валидация SBOM
 ├── updater.py              # Обогащение SBOM (VCS через API)
 ├── unifier.py              # Объединение SBOM

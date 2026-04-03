@@ -135,6 +135,24 @@ def get_manufacturer(config, purl):
     return defaults.get('manufacturer')
 
 
+def get_metadata_config(config):
+    """Получить настройки metadata из конфига.
+
+    Возвращает dict с полями для metadata.component (pedigree, manufacturer, name, version и т.д.)
+    или пустой dict.
+    """
+    return config.get('metadata', {})
+
+
+def get_scanner_config(config):
+    """Получить настройки сканера из конфига.
+
+    Возвращает dict с полями tool, output, target, options
+    или пустой dict.
+    """
+    return config.get('scanner', {})
+
+
 # ── Конвертация в старые форматы ──────────────────────────────────────────────
 
 
@@ -212,6 +230,14 @@ def init_config(bom, output_path=None, extra_boms=None):
     if output_path.is_file() and output_path.stat().st_size > 0:
         with open(output_path, encoding='utf-8') as f:
             existing = json.load(f)
+
+    # Сохранить metadata
+    if 'metadata' not in existing:
+        existing['metadata'] = {
+            'name': 'TODO',
+            'version': 'TODO',
+            'manufacturer': {'name': 'TODO'},
+        }
 
     # Сохранить defaults
     if 'defaults' not in existing:
@@ -417,13 +443,23 @@ def apply_config_to_component(comp, config, gost_default='no', provided_by_defau
     vcs_url = get_vcs(config, purl)
     if vcs_url:
         refs = comp.get('externalReferences', [])
-        # Не перезаписываем существующий vcs
-        has_vcs = any(r.get('type') == 'vcs' for r in refs)
-        if not has_vcs:
-            if not isinstance(refs, list):
-                refs = []
-            refs.append({'type': 'vcs', 'url': vcs_url})
+        if not isinstance(refs, list):
+            refs = []
             comp['externalReferences'] = refs
+        # Заменить placeholder (TODO/пустой) или добавить если нет vcs
+        placeholder_idx = None
+        has_valid_vcs = False
+        for i, r in enumerate(refs):
+            if r.get('type') == 'vcs':
+                if r.get('url') in ('TODO', '', None, 'sbom-updater_generated_placeholder:'):
+                    placeholder_idx = i
+                else:
+                    has_valid_vcs = True
+        if not has_valid_vcs:
+            if placeholder_idx is not None:
+                refs[placeholder_idx]['url'] = vcs_url
+            else:
+                refs.append({'type': 'vcs', 'url': vcs_url})
 
 
 def _set_prop(props, name, value):

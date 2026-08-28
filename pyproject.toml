@@ -26,9 +26,3 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["sbom_utils"]
-
-[tool.hatch.build.targets.wheel.force-include]
-"sbom_utils/additional_schemas" = "sbom_utils/additional_schemas"
-"sbom_utils/schemas" = "sbom_utils/schemas"
-"sbom_utils/odt_templates" = "sbom_utils/odt_templates"
-"sbom_utils/purl_to_vcs.json" = "sbom_utils/purl_to_vcs.json"

@@ -2,18 +2,19 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import argparse
+import concurrent.futures
 import datetime
 import json
 import logging
 import os
 from pathlib import Path
 import sys
+import threading
 from requests import Session, adapters
 import xml.etree.ElementTree as ET
 
 from .sbom_utils import opener, check_repo, load_cache, dump_cache
 
-_PKG_DIR = Path(__file__).parent.resolve()
 _PURL_TO_VCS_FILENAME = '.purl_to_vcs.json'
 _PURL_TO_GOST_FILENAME = '.purl_to_gost.json'
 
@@ -23,6 +24,8 @@ _GOST_DEFAULT_VALUE = 'no'
 
 DEFAULT_VALUE = "TODO"
 
+_HTTP_TIMEOUT = 30
+
 
 def _resolve_purl_to_vcs(cli_path=None):
     """Определить путь к purl_to_vcs.json.
@@ -30,7 +33,7 @@ def _resolve_purl_to_vcs(cli_path=None):
     Порядок поиска:
     1. Явно указанный через CLI (--purl-to-vcs)
     2. .purl_to_vcs.json в текущей рабочей директории
-    3. Встроенный в пакет purl_to_vcs.json (fallback)
+    3. None (маппинг не используется)
     """
     if cli_path:
         p = Path(cli_path)
@@ -42,7 +45,7 @@ def _resolve_purl_to_vcs(cli_path=None):
     if cwd_file.is_file():
         return cwd_file
 
-    return _PKG_DIR / 'purl_to_vcs.json'
+    return None
 
 
 def _resolve_purl_to_gost(cli_path=None):
@@ -126,17 +129,36 @@ def get_website(ref_arr):
             return elem
     return False
 
+class _TimeoutHTTPAdapter(adapters.HTTPAdapter):
+    """HTTPAdapter с таймаутом по умолчанию."""
+
+    def __init__(self, *args, timeout=_HTTP_TIMEOUT, **kwargs):
+        self._default_timeout = timeout
+        super().__init__(*args, **kwargs)
+
+    def send(self, *args, **kwargs):
+        if kwargs.get('timeout') is None:
+            kwargs['timeout'] = self._default_timeout
+        return super().send(*args, **kwargs)
+
+
 class RefFinder(object):
     def __init__(self, purl_file=None):
         self._placeholder_url = 'sbom-updater_generated_placeholder:'
         self._nuget_addr = None
+        self._lock = threading.Lock()
         self._session = Session()
-        adapter = adapters.HTTPAdapter(max_retries=5)
+        adapter = _TimeoutHTTPAdapter(max_retries=5, pool_connections=10, pool_maxsize=10)
         self._session.mount('http://', adapter=adapter)
         self._session.mount('https://', adapter=adapter)
         self._prefixes = {
             'pkg:nuget/': self._nuget_purl,
             'pkg:gem/': self._gem_purl,
+            'pkg:pypi/': self._pypi_purl,
+            'pkg:npm/': self._npm_purl,
+            'pkg:maven/': self._maven_purl,
+            'pkg:rpm/': self._rpm_purl,
+            'pkg:deb/': self._deb_purl,
         }
         self._purl_to_url = dict()
         try:
@@ -148,18 +170,23 @@ class RefFinder(object):
         os.environ['GIT_TERMINAL_PROMPT'] = '0'
 
     def is_repo(self, url):
-        if not url in self._repo_dict:
-            self._repo_dict[url], ex_str = check_repo(url)
-            if not self._repo_dict[url]:
-                logging.info(ex_str)
-        return self._repo_dict[url]
+        with self._lock:
+            if url in self._repo_dict:
+                return self._repo_dict[url]
+        result, ex_str = check_repo(url)
+        with self._lock:
+            self._repo_dict[url] = result
+        if not result:
+            logging.info(ex_str)
+        return result
 
     def dump_repos(self):
         dump_cache('vcs', {k:v for k,v in self._repo_dict.items() if v})
 
     def process_purl(self, purl):
-        if purl in self._purl_to_url:
-            return self._purl_to_url[purl]
+        with self._lock:
+            if purl in self._purl_to_url:
+                return self._purl_to_url[purl]
         logging.info(f'обработка purl {purl}')
 
         urls = self._ecosystems(purl)
@@ -173,8 +200,10 @@ class RefFinder(object):
             else:
                 logging.info(f'не удалось найти репозиторий для purl {purl}')
         logging.info('-'*50)
-        self._purl_to_url[purl] = url if url else self._placeholder_url
-        return self._purl_to_url[purl]
+        result = url if url else self._placeholder_url
+        with self._lock:
+            self._purl_to_url[purl] = result
+        return result
 
     def _analyse_urls(self, urls, purl, log_prefix):
         for url in urls:
@@ -188,10 +217,12 @@ class RefFinder(object):
         return None
 
     def _ecosystems(self, purl):
-        ecosystems_data = None
-        with self._session.get(f"https://packages.ecosyste.ms/api/v1/packages/lookup?purl={purl.lower()}") as res:
-            ecosystems_data = res.json()
-        if ecosystems_data:
+        try:
+            with self._session.get(f"https://packages.ecosyste.ms/api/v1/packages/lookup?purl={purl.lower()}") as res:
+                ecosystems_data = res.json()
+        except Exception:
+            return []
+        if isinstance(ecosystems_data, list) and ecosystems_data:
             ecosystems_data = ecosystems_data[0]
             return [ecosystems_data.get("repository_url", ''), ecosystems_data.get("registry_url", ''), ecosystems_data.get("homepage", '')]
         return []
@@ -227,8 +258,11 @@ class RefFinder(object):
         gem_data = dict()
         urls = []
         kws = ['source_code_uri', 'project_uri', 'homepage_uri']
-        with self._session.get(f'https://rubygems.org/api/v2/rubygems/{id.lower()}/versions/{version.lower()}.json') as res:
-            gem_data = res.json()
+        try:
+            with self._session.get(f'https://rubygems.org/api/v2/rubygems/{id.lower()}/versions/{version.lower()}.json') as res:
+                gem_data = res.json()
+        except Exception:
+            return []
         md = gem_data.get('metadata', dict())
         for kw in kws:
             url = gem_data.get(kw, '')
@@ -237,6 +271,162 @@ class RefFinder(object):
             url = md.get(kw, '')
             if url and not url in urls:
                 urls.append(url)
+        return urls
+
+    def _pypi_purl(self, purl):
+        """Поиск VCS через PyPI JSON API."""
+        name = purl.split("@")[0][9:]
+        try:
+            with self._session.get(f'https://pypi.org/pypi/{name}/json') as res:
+                if res.status_code != 200:
+                    return []
+                data = res.json()
+        except Exception:
+            return []
+        urls = []
+        project_urls = data.get('info', {}).get('project_urls') or {}
+        for key in ('Source', 'Source Code', 'Repository', 'Code', 'GitHub', 'Homepage'):
+            for purl_key, purl_url in project_urls.items():
+                if purl_key.lower().replace(' ', '') == key.lower().replace(' ', '') and purl_url:
+                    if purl_url not in urls:
+                        urls.append(purl_url)
+        home_page = data.get('info', {}).get('home_page', '')
+        if home_page and home_page not in urls:
+            urls.append(home_page)
+        return urls
+
+    def _npm_purl(self, purl):
+        """Поиск VCS через npm registry API."""
+        name_ver = purl[8:]
+        name = name_ver.split("@")[-2] if name_ver.count("@") >= 2 else name_ver.split("@")[0]
+        if name.startswith('%40'):
+            name = '@' + name[3:]
+        try:
+            with self._session.get(f'https://registry.npmjs.org/{name}') as res:
+                if res.status_code != 200:
+                    return []
+                data = res.json()
+        except Exception:
+            return []
+        urls = []
+        repo = data.get('repository', {})
+        if isinstance(repo, dict):
+            repo_url = repo.get('url', '')
+            if repo_url:
+                for prefix in ('git+https://', 'git+http://', 'git://'):
+                    if repo_url.startswith(prefix):
+                        repo_url = 'https://' + repo_url[len(prefix):]
+                        break
+                if repo_url.endswith('.git'):
+                    repo_url = repo_url[:-4]
+                if repo_url not in urls:
+                    urls.append(repo_url)
+        homepage = data.get('homepage', '')
+        if homepage and homepage not in urls:
+            urls.append(homepage)
+        return urls
+
+    def _maven_purl(self, purl):
+        """Поиск VCS через Maven Central API."""
+        parts = purl[10:]
+        name_part = parts.split("@")[0]
+        if '/' in name_part:
+            group_id, artifact_id = name_part.split('/', 1)
+        else:
+            return []
+        try:
+            with self._session.get(
+                f'https://search.maven.org/solrsearch/select?q=g:{group_id}+AND+a:{artifact_id}&rows=1&wt=json'
+            ) as res:
+                if res.status_code != 200:
+                    return []
+                data = res.json()
+        except Exception:
+            return []
+        urls = []
+        docs = data.get('response', {}).get('docs', [])
+        if not docs:
+            return []
+        doc = docs[0]
+        version = doc.get('latestVersion', '')
+        if version:
+            group_path = group_id.replace('.', '/')
+            pom_url = f'https://repo1.maven.org/maven2/{group_path}/{artifact_id}/{version}/{artifact_id}-{version}.pom'
+            try:
+                with self._session.get(pom_url) as res:
+                    if res.status_code == 200:
+                        root = ET.fromstring(res.text)
+                        ns = ''
+                        if root.tag.startswith('{'):
+                            ns = root.tag[:root.tag.index('}') + 1]
+                        scm = root.find(f'{ns}scm')
+                        if scm is not None:
+                            scm_url = scm.findtext(f'{ns}url', '')
+                            scm_conn = scm.findtext(f'{ns}connection', '')
+                            if scm_url and scm_url not in urls:
+                                urls.append(scm_url)
+                            if scm_conn:
+                                conn = scm_conn
+                                for prefix in ('scm:git:', 'scm:svn:', 'scm:'):
+                                    if conn.startswith(prefix):
+                                        conn = conn[len(prefix):]
+                                        break
+                                if conn.startswith('git://'):
+                                    conn = 'https://' + conn[6:]
+                                if conn.endswith('.git'):
+                                    conn = conn[:-4]
+                                if conn and conn not in urls:
+                                    urls.append(conn)
+                        proj_url = root.findtext(f'{ns}url', '')
+                        if proj_url and proj_url not in urls:
+                            urls.append(proj_url)
+            except Exception:
+                pass
+        return urls
+
+    def _rpm_purl(self, purl):
+        """Поиск VCS через Fedora/CentOS/РЕД ОС/Rocky Linux."""
+        name_part = purl[8:]
+        name_part = name_part.split("@")[0]
+        if '/' in name_part:
+            name_part = name_part.split('/', 1)[-1]
+        urls = []
+        urls.append(f'https://src.fedoraproject.org/rpms/{name_part}')
+        urls.append(f'https://gitlab.com/redhat/centos-stream/rpms/{name_part}')
+        urls.append(f'https://git.rockylinux.org/staging/rpms/{name_part}')
+        return urls
+
+    def _deb_purl(self, purl):
+        """Поиск VCS через Debian Sources API и салса (salsa.debian.org)."""
+        name_part = purl[8:]
+        name_part = name_part.split("@")[0]
+        distro = ''
+        if '/' in name_part:
+            distro, name_part = name_part.split('/', 1)
+        urls = []
+        try:
+            with self._session.get(f'https://sources.debian.org/api/src/{name_part}/') as res:
+                if res.status_code == 200:
+                    data = res.json()
+                    vcs_git = data.get('info', {}).get('vcs_git', '') if isinstance(data.get('info'), dict) else ''
+                    if not vcs_git and isinstance(data.get('versions'), list):
+                        for ver in data['versions']:
+                            if isinstance(ver, dict):
+                                vcs_git = ver.get('vcs_git', '')
+                                if vcs_git:
+                                    break
+                    if vcs_git:
+                        if vcs_git.endswith('.git'):
+                            vcs_git = vcs_git[:-4]
+                        if vcs_git not in urls:
+                            urls.append(vcs_git)
+        except Exception:
+            pass
+        urls.append(f'https://salsa.debian.org/debian/{name_part}')
+        urls.append(f'https://git.altlinux.org/gears/{name_part[0]}/{name_part}.git')
+        urls.append(f'https://git.altlinux.org/srpms/{name_part[0]}/{name_part}.git')
+        if distro == 'ubuntu':
+            urls.append(f'https://git.launchpad.net/ubuntu/+source/{name_part}')
         return urls
 
 
@@ -296,7 +486,7 @@ def configure_parser(parser):
     parser.add_argument('--update', metavar='OLD_SBOM', help='предыдущая версия перечня заимствованных компонентов, состав и версии которых могли устареть, но метаинформацию о приложении и компонентах требуется по возможности перенести в новый перечень')
 
 
-def run(args):
+def run(args, progress_callback=None):
     if getattr(args, 'verbose', False):
         logging.basicConfig(format='%(message)s', level="INFO")
 
@@ -449,20 +639,43 @@ def run(args):
         purl_file = _resolve_purl_to_vcs(args.purl_to_vcs)
         logging.info(f"используется файл purl→vcs: {purl_file}")
         ref_finder = RefFinder(purl_file)
+        flat_components = []
         stack = input_data.get('components', []).copy()
         while stack:
             component = stack.pop(0)
             if 'components' in component:
                 stack += component['components']
-            if 'purl' in component and not 'externalReferences' in component:
-                url = ref_finder.process_purl(component['purl'])
-                if url:
-                    component['externalReferences'] = [{'type':'vcs', 'url': url}]
+            flat_components.append(component)
+        total = len(flat_components)
+
+        _progress_lock = threading.Lock()
+        _progress_completed = [0]
+
+        def _process_component(component):
+            result = {'component': component, 'vcs_url': None, 'website_fix': None}
+            if 'purl' in component and 'externalReferences' not in component:
+                result['vcs_url'] = ref_finder.process_purl(component['purl'])
             website_ref = get_website(component.get('externalReferences', []))
             if website_ref and ref_finder.is_repo(website_ref['url']):
-                website_ref['type'] = 'vcs'
-                logging.info(f"смена типа с 'website' на 'vcs' для {website_ref['url']}")
-                logging.info('-'*50)
+                result['website_fix'] = website_ref
+            if progress_callback:
+                with _progress_lock:
+                    _progress_completed[0] += 1
+                    idx = _progress_completed[0]
+                name = component.get('name', component.get('purl', '?'))
+                progress_callback(idx, total, name)
+            return result
+
+        max_workers = min(8, total) if total > 0 else 1
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            for result in executor.map(_process_component, flat_components):
+                component = result['component']
+                if result['vcs_url']:
+                    component['externalReferences'] = [{'type': 'vcs', 'url': result['vcs_url']}]
+                if result['website_fix']:
+                    result['website_fix']['type'] = 'vcs'
+                    logging.info(f"смена типа с 'website' на 'vcs' для {result['website_fix']['url']}")
+                    logging.info('-' * 50)
         ref_finder.dump_repos()
 
     if args.update:

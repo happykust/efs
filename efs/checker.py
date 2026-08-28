@@ -271,7 +271,7 @@ def run(args):
             return 1
         if not_ready:
             print(f"файл соответствует схеме, но перечень не готов к сдаче: замечаний {not_ready}")
-            return 2
+            return 3
         print("файл корректный")
         return 0
     except jsonschema.exceptions.SchemaError as se:

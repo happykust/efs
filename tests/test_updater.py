@@ -252,3 +252,38 @@ class TestRun:
         path = self._write_bom(tmp_path, [make_component("requests", "2.32.5")])
         with pytest.raises(SystemExit):
             updater.run(self._args(tmp_path, path, output=None))
+
+    def test_props_fills_language_from_purl(self, tmp_path):
+        """--props должен давать перечень, проходящий efs check, включая язык."""
+        path = self._write_bom(tmp_path, [make_component("requests", "2.32.5")])
+        updater.run(self._args(tmp_path, path, props=True))
+
+        data = json.loads((tmp_path / "out.json").read_text(encoding="utf-8"))
+        langs = [p["value"] for p in data["components"][0]["properties"] if p["name"] == "GOST:source_langs"]
+        assert langs == ["Python"]
+
+    def test_language_not_invented_for_distro_packages(self, tmp_path):
+        path = self._write_bom(tmp_path, [make_component("curl", "8.0.1", purl="pkg:deb/debian/curl@8.0.1")])
+        updater.run(self._args(tmp_path, path, props=True))
+
+        data = json.loads((tmp_path / "out.json").read_text(encoding="utf-8"))
+        assert all(p["name"] != "GOST:source_langs" for p in data["components"][0]["properties"])
+
+    def test_existing_language_preserved(self, tmp_path):
+        comp = make_component("requests", "2.32.5", properties=[{"name": "GOST:source_langs", "value": "Python, Rust"}])
+        path = self._write_bom(tmp_path, [comp])
+        updater.run(self._args(tmp_path, path, props=True))
+
+        data = json.loads((tmp_path / "out.json").read_text(encoding="utf-8"))
+        langs = [p["value"] for p in data["components"][0]["properties"] if p["name"] == "GOST:source_langs"]
+        assert langs == ["Python, Rust"]
+
+    def test_gost_branch_also_fills_language(self, tmp_path):
+        mapping = tmp_path / "gost.json"
+        mapping.write_text(json.dumps({"GOST:attack_surface": {}}), encoding="utf-8")
+        path = self._write_bom(tmp_path, [make_component("requests", "2.32.5")])
+        updater.run(self._args(tmp_path, path, gost=True, purl_to_gost=str(mapping)))
+
+        data = json.loads((tmp_path / "out.json").read_text(encoding="utf-8"))
+        langs = [p["value"] for p in data["components"][0]["properties"] if p["name"] == "GOST:source_langs"]
+        assert langs == ["Python"]

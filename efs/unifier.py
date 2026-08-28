@@ -167,6 +167,23 @@ def _merge_trivy(args, files):
         json.dump(output_data, f, indent=2, ensure_ascii=False)
 
 
+def collect_source_langs(components):
+    """Собрать языки всех компонентов, включая вложенные, в порядке первого появления."""
+    langs = []
+    stack = list(components)
+    while stack:
+        comp = stack.pop(0)
+        stack += comp.get("components", [])
+        for prop in comp.get("properties", []):
+            if prop.get("name") != "GOST:source_langs":
+                continue
+            for lang in str(prop.get("value", "")).split(","):
+                lang = lang.strip()
+                if lang and lang not in langs:
+                    langs.append(lang)
+    return langs
+
+
 def run(args):
     files = [opener(fn) for fn in args.input]
     trivy_flags = [is_trivy_sbom(data) for data, _ in files]
@@ -210,6 +227,11 @@ def _merge_standard(args, files):
                     "name": "GOST:security_function",
                     "value": eval_prop(data.get("components", []), "GOST:security_function"),
                 }
+            )
+        if not get_prop(new_data.get("properties", []), "GOST:source_langs"):
+            new_data["properties"].extend(
+                {"name": "GOST:source_langs", "value": lang}
+                for lang in collect_source_langs(data.get("components", []))
             )
         all_components.append(new_data)
 

@@ -14,6 +14,7 @@ from pathlib import Path
 
 from requests import Session, adapters
 
+from .config import guess_source_langs
 from .utils import check_repo, dump_cache, load_cache, opener
 
 _PURL_TO_VCS_FILENAME = ".purl_to_vcs.json"
@@ -93,6 +94,15 @@ def _set_prop(props, name, value):
     props.append({"name": name, "value": value})
 
 
+def _fill_source_langs(component):
+    """Проставить язык, следующий из purl, если он ещё не указан."""
+    if has_prop(component.get("properties", []), "GOST:source_langs"):
+        return
+    langs = guess_source_langs(component.get("purl", ""))
+    if langs:
+        component.setdefault("properties", []).append({"name": "GOST:source_langs", "value": langs})
+
+
 def _apply_gost_props(component, purl_to_gost):
     """Применить GOST-свойства к компоненту на основе маппинга.
 
@@ -118,6 +128,8 @@ def _apply_gost_props(component, purl_to_gost):
     provided_by = purl_to_gost.get("GOST:provided_by", {}).get(purl, "") if purl else ""
     if provided_by:
         _set_prop(component["properties"], "GOST:provided_by", provided_by)
+
+    _fill_source_langs(component)
 
 
 def has_prop(arr, name):
@@ -483,6 +495,7 @@ def run(args, progress_callback=None):
                 component["properties"].append({"name": "GOST:attack_surface", "value": "yes"})
             if not has_prop(component["properties"], "GOST:security_function"):
                 component["properties"].append({"name": "GOST:security_function", "value": "yes"})
+            _fill_source_langs(component)
             if "components" in component:
                 stack += component["components"]
 

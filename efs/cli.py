@@ -2,9 +2,39 @@
 # SPDX-FileCopyrightText: 2026 Kirill Nikolaevskiy
 # SPDX-License-Identifier: Apache-2.0
 
+from enum import StrEnum
+from pathlib import Path
 from types import SimpleNamespace
 
 import typer
+
+
+def _enum_value(option):
+    """Значение опции-перечисления: typer отдаёт то член Enum, то строку по умолчанию."""
+    return getattr(option, "value", option)
+
+
+class SbomFormat(StrEnum):
+    """Форма перечня: заимствованные компоненты или образы контейнеров."""
+
+    oss = "oss"
+    container = "container"
+
+
+class ScanTool(StrEnum):
+    """Поддерживаемые генераторы SBOM."""
+
+    cdxgen = "cdxgen"
+    trivy = "trivy"
+
+
+class GostValue(StrEnum):
+    """Допустимые значения ГОСТ-свойств."""
+
+    yes = "yes"
+    no = "no"
+    indirect = "indirect"
+
 
 app = typer.Typer(
     name="efs",
@@ -14,9 +44,7 @@ app = typer.Typer(
 )
 export_app = typer.Typer(name="export", help="Экспорт SBOM в различные форматы", invoke_without_command=True)
 app.add_typer(export_app)
-config_app = typer.Typer(
-    name="config", help="Управление единым конфигом .efs-config.json", invoke_without_command=True
-)
+config_app = typer.Typer(name="config", help="Управление единым конфигом .efs-config.json", invoke_without_command=True)
 app.add_typer(config_app)
 
 state = {"verbose": False}
@@ -49,7 +77,9 @@ def config_callback(ctx: typer.Context):
 
 @app.command("check", help="Валидация SBOM")
 def cmd_check(
-    filename: str = typer.Argument(..., help="входной файл в формате CycloneDX JSON для проверки"),
+    filename: Path = typer.Argument(
+        ..., exists=True, dir_okay=False, readable=True, help="входной файл в формате CycloneDX JSON для проверки"
+    ),
     errors: int = typer.Option(10, "-e", "--errors", help="максимальное число ошибок для вывода; 0 = все"),
     check_vcs: bool = typer.Option(False, "--check-vcs", help="проверка url типа vcs на git/svn/hg/fossil-репозиторий"),
     check_vcs_leaf_only: bool = typer.Option(
@@ -58,17 +88,17 @@ def cmd_check(
     check_source_distribution: bool = typer.Option(
         False, "--check-source-distribution", help="проверка существования URL для типа source-distribution"
     ),
-    format_: str = typer.Option("oss", "--format", help="oss | container; по умолчанию oss"),
+    format_: SbomFormat = typer.Option(SbomFormat.oss, "--format", help="форма перечня"),
 ):
     from efs.checker import run
 
     args = SimpleNamespace(
-        filename=filename,
+        filename=str(filename),
         errors=errors,
         check_vcs=check_vcs,
         check_vcs_leaf_only=check_vcs_leaf_only,
         check_source_distribution=check_source_distribution,
-        format=format_,
+        format=_enum_value(format_),
         verbose=state["verbose"],
     )
     raise typer.Exit(code=run(args) or 0)
@@ -79,7 +109,9 @@ def cmd_check(
 
 @app.command("update", help="Обогащение SBOM")
 def cmd_update(
-    input_: str = typer.Argument(..., metavar="INPUT", help="входной файл CycloneDX JSON"),
+    input_: Path = typer.Argument(
+        ..., metavar="INPUT", exists=True, dir_okay=False, readable=True, help="входной файл CycloneDX JSON"
+    ),
     output: str | None = typer.Argument(None, help="выходной файл с дооформленным перечнем"),
     props: bool = typer.Option(False, "--props", help="добавить GOST:attack_surface и GOST:security_function"),
     app_name: str | None = typer.Option(None, "--app-name", help="название продукта"),
@@ -89,16 +121,16 @@ def cmd_update(
     purl_to_vcs: str | None = typer.Option(None, "--purl-to-vcs", help="путь к файлу маппинга purl→vcs"),
     gost: bool = typer.Option(False, "--gost", help="установить GOST-свойства из файла маппинга"),
     purl_to_gost: str | None = typer.Option(None, "--purl-to-gost", help="путь к файлу маппинга purl→GOST"),
-    extra_input: list[str] | None = typer.Option(
-        None, "-i", "--extra-input", help="дополнительные SBOM-файлы"
-    ),
+    extra_input: list[str] | None = typer.Option(None, "-i", "--extra-input", help="дополнительные SBOM-файлы"),
     fix_all: bool = typer.Option(False, "--fix-all", help="применить все опции"),
-    update: str | None = typer.Option(None, "--update", metavar="OLD_SBOM", help="предыдущая версия перечня"),
+    update: Path | None = typer.Option(
+        None, "--update", metavar="OLD_SBOM", exists=True, dir_okay=False, help="предыдущая версия перечня"
+    ),
 ):
     from efs.updater import run
 
     args = SimpleNamespace(
-        input=input_,
+        input=str(input_),
         output=output,
         props=props,
         app_name=app_name,
@@ -110,7 +142,7 @@ def cmd_update(
         purl_to_gost=purl_to_gost,
         extra_input=extra_input or [],
         fix_all=fix_all,
-        update=update,
+        update=str(update) if update else None,
         verbose=state["verbose"],
     )
     run(args)
@@ -148,13 +180,15 @@ def cmd_merge(
 
 @export_app.command("csv", help="Экспорт SBOM в CSV")
 def cmd_export_csv(
-    input_: str = typer.Argument(..., metavar="INPUT", help="входной файл CycloneDX JSON"),
+    input_: Path = typer.Argument(
+        ..., metavar="INPUT", exists=True, dir_okay=False, readable=True, help="входной файл CycloneDX JSON"
+    ),
     output: str = typer.Argument(..., help="выходной CSV файл"),
 ):
     from efs.to_csv import run
 
     args = SimpleNamespace(
-        input=input_,
+        input=str(input_),
         output=output,
         verbose=state["verbose"],
     )
@@ -166,18 +200,20 @@ def cmd_export_csv(
 
 @export_app.command("odt", help="Экспорт SBOM в ODT")
 def cmd_export_odt(
-    input_: str = typer.Argument(..., metavar="INPUT", help="входной файл CycloneDX JSON"),
+    input_: Path = typer.Argument(
+        ..., metavar="INPUT", exists=True, dir_okay=False, readable=True, help="входной файл CycloneDX JSON"
+    ),
     output: str = typer.Argument(..., help="выходной ODT файл"),
     pa_fb_ontop: bool = typer.Option(False, "-t", "--pa-fb-ontop", help="помещение записей «ПА» и «ФБ» в топ таблицы"),
-    format_: str = typer.Option("oss", "--format", help="oss | container; по умолчанию oss"),
+    format_: SbomFormat = typer.Option(SbomFormat.oss, "--format", help="форма перечня"),
 ):
     from efs.to_odt import run
 
     args = SimpleNamespace(
-        input=input_,
+        input=str(input_),
         output=output,
         pa_fb_ontop=pa_fb_ontop,
-        format=format_,
+        format=_enum_value(format_),
         verbose=state["verbose"],
     )
     run(args)
@@ -188,14 +224,14 @@ def cmd_export_odt(
 
 @app.command("postprocess", help="Постобработка вывода cdxgen")
 def cmd_postprocess(
-    input_: str = typer.Argument(..., metavar="INPUT", help="входной BOM файл (JSON)"),
+    input_: Path = typer.Argument(
+        ..., metavar="INPUT", exists=True, dir_okay=False, readable=True, help="входной BOM файл (JSON)"
+    ),
     output: str = typer.Argument(..., help="выходной BOM файл (JSON)"),
     app_name: str | None = typer.Option(None, "--app-name", help="название продукта"),
     app_version: str | None = typer.Option(None, "--app-version", help="версия продукта"),
     manufacturer: str | None = typer.Option(None, "--manufacturer", help="организация-изготовитель"),
-    gost_default: str = typer.Option(
-        "no", "--gost-default", help="значение ГОСТ-свойств по умолчанию (yes/no/indirect)"
-    ),
+    gost_default: GostValue = typer.Option(GostValue.no, "--gost-default", help="значение ГОСТ-свойств по умолчанию"),
     strip_only: bool = typer.Option(False, "--strip-only", help="только очистить лишние поля"),
     keep_all_fields: bool = typer.Option(False, "--keep-all-fields", help="не удалять необязательные поля компонентов"),
     provided_by: str | None = typer.Option(
@@ -213,17 +249,13 @@ def cmd_postprocess(
 ):
     from efs.postprocess import run
 
-    if gost_default not in ("yes", "no", "indirect"):
-        typer.echo("ошибка: --gost-default должен быть yes, no или indirect", err=True)
-        raise typer.Exit(code=1)
-
     args = SimpleNamespace(
-        input=input_,
+        input=str(input_),
         output=output,
         app_name=app_name,
         app_version=app_version,
         manufacturer=manufacturer,
-        gost_default=gost_default,
+        gost_default=_enum_value(gost_default),
         strip_only=strip_only,
         keep_all_fields=keep_all_fields,
         provided_by=provided_by,
@@ -242,7 +274,7 @@ def cmd_postprocess(
 
 @app.command("scan", help="Генерация SBOM с помощью cdxgen или trivy")
 def cmd_scan(
-    tool: str | None = typer.Option(None, "--tool", help="инструмент: cdxgen | trivy"),
+    tool: ScanTool | None = typer.Option(None, "--tool", help="инструмент генерации SBOM"),
     target: str | None = typer.Option(None, "--target", help="путь или образ для сканирования"),
     output: str | None = typer.Option(None, "--output", "-o", help="выходной файл SBOM"),
     config: str | None = typer.Option(None, "--config", help="путь к .efs-config.json"),
@@ -263,7 +295,7 @@ def cmd_scan(
     scanner_cfg = get_scanner_config(cfg)
 
     # CLI-флаги переопределяют конфиг
-    scan_tool = tool or scanner_cfg.get("tool", "cdxgen")
+    scan_tool = _enum_value(tool) if tool else scanner_cfg.get("tool", "cdxgen")
     scan_target = target or scanner_cfg.get("target", ".")
     scan_output = output or scanner_cfg.get("output", "bom.json")
     scan_options = scanner_cfg.get("options", {})
@@ -465,7 +497,9 @@ def cmd_config_status(
 
 @config_app.command("init", help="Сгенерировать .efs-config.json из одного или нескольких SBOM")
 def cmd_config_init(
-    inputs: list[str] = typer.Argument(..., metavar="INPUT", help="входные файлы CycloneDX JSON (один или несколько)"),
+    inputs: list[Path] = typer.Argument(
+        ..., metavar="INPUT", exists=True, dir_okay=False, readable=True, help="входные файлы CycloneDX JSON"
+    ),
     output: str | None = typer.Option(
         None, "-o", "--output", help="путь к выходному конфигу (по умолчанию .efs-config.json)"
     ),

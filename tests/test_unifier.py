@@ -413,3 +413,51 @@ class TestTrivyDependencies:
             assert entry["ref"] in known
             for ref in entry["dependsOn"]:
                 assert ref in known
+
+
+class TestMergeSourceLangs:
+    def _component(self, name, purl, langs):
+        return make_component(
+            name,
+            "1.0",
+            purl=purl,
+            properties=[{"name": "GOST:source_langs", "value": lang} for lang in langs],
+        )
+
+    def test_languages_aggregated_from_components(self, tmp_path):
+        """Компонент-сервис в сводном перечне наследует языки своих компонентов."""
+        bom = make_bom(
+            [
+                self._component("requests", "pkg:pypi/requests@1.0", ["Python"]),
+                self._component("cryptography", "pkg:pypi/cryptography@1.0", ["Python", "C"]),
+            ]
+        )
+        result = merge_boms(tmp_path, [bom])
+        langs = [p["value"] for p in result["components"][0]["properties"] if p["name"] == "GOST:source_langs"]
+        assert sorted(langs) == ["C", "Python"]
+
+    def test_each_language_is_separate_property(self, tmp_path):
+        bom = make_bom([self._component("cryptography", "pkg:pypi/cryptography@1.0", ["Python", "C"])])
+        result = merge_boms(tmp_path, [bom])
+        names = [p["name"] for p in result["components"][0]["properties"]]
+        assert names.count("GOST:source_langs") == 2
+
+    def test_explicit_language_of_service_preserved(self, tmp_path):
+        bom = make_bom([self._component("requests", "pkg:pypi/requests@1.0", ["Python"])])
+        bom["metadata"]["component"]["properties"] = [{"name": "GOST:source_langs", "value": "Go"}]
+        result = merge_boms(tmp_path, [bom])
+        langs = [p["value"] for p in result["components"][0]["properties"] if p["name"] == "GOST:source_langs"]
+        assert langs == ["Go"]
+
+    def test_no_language_property_when_components_have_none(self, tmp_path):
+        bom = make_bom([make_component("requests", "1.0")])
+        result = merge_boms(tmp_path, [bom])
+        assert all(p["name"] != "GOST:source_langs" for p in result["components"][0]["properties"])
+
+    def test_languages_collected_from_nested_components(self, tmp_path):
+        """В контейнерных SBOM компоненты вложены в образ — их языки тоже нужны."""
+        inner = self._component("libssl", "pkg:deb/debian/libssl@1.0", ["C"])
+        outer = make_component("app-image", "1.0", purl="pkg:oci/app@1.0", components=[inner])
+        result = merge_boms(tmp_path, [make_bom([outer])])
+        langs = [p["value"] for p in result["components"][0]["properties"] if p["name"] == "GOST:source_langs"]
+        assert langs == ["C"]

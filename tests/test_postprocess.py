@@ -329,9 +329,7 @@ class TestSourceLangsWhenStripping:
         assert all(p["name"] != "GOST:source_langs" for p in comp["properties"])
 
     def test_existing_language_preserved_without_config(self):
-        comp = make_component(
-            "requests", "2.32.5", properties=[{"name": "GOST:source_langs", "value": "Python, Rust"}]
-        )
+        comp = make_component("requests", "2.32.5", properties=[{"name": "GOST:source_langs", "value": "Python, Rust"}])
         strip_component(comp, COMPONENT_STRIP_FIELDS, "no")
         langs = [p["value"] for p in comp["properties"] if p["name"] == "GOST:source_langs"]
         assert langs == ["Python, Rust"]

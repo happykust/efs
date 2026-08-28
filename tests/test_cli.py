@@ -248,10 +248,10 @@ class TestCheckExitCodes:
         result = runner.invoke(app, ["check", self._write(tmp_path, bom)])
         assert result.exit_code == 1
 
-    def test_incomplete_listing_exits_two(self, tmp_path):
+    def test_incomplete_listing_exits_three(self, tmp_path):
         path = self._write(tmp_path, make_bom([self._component(with_source_langs=False)]))
         result = runner.invoke(app, ["check", path])
-        assert result.exit_code == 2
+        assert result.exit_code == 3
 
     def test_bundled_example_is_ready(self):
         result = runner.invoke(app, ["check", "examples/example-sbom.json"])
@@ -355,9 +355,7 @@ class TestPostprocessAugmentsConfig:
     def test_excluded_components_not_dropped_from_config(self, tmp_path):
         """Исключённого компонента нет в результате, но его настройка должна остаться."""
         config_path = tmp_path / ".efs-config.json"
-        config_path.write_text(
-            json.dumps({"components": {"pkg:npm/eslint": {"exclude": True}}}), encoding="utf-8"
-        )
+        config_path.write_text(json.dumps({"components": {"pkg:npm/eslint": {"exclude": True}}}), encoding="utf-8")
         bom_path = self._bom(
             tmp_path,
             [
@@ -377,3 +375,63 @@ class TestPostprocessAugmentsConfig:
         result = runner.invoke(app, ["postprocess", bom_path, str(tmp_path / "out.json"), "--app-name", "П"])
         assert result.exit_code == 0, result.output
         assert not (tmp_path / ".efs-config.json").exists()
+
+
+class TestArgumentValidation:
+    def test_missing_file_reports_error_not_traceback(self, tmp_path):
+        result = runner.invoke(app, ["check", str(tmp_path / "нет.json")])
+        assert result.exit_code != 0
+        assert "Traceback" not in result.output
+        assert "does not exist" in result.output or "не существует" in result.output
+
+    def test_unknown_format_rejected(self):
+        result = runner.invoke(app, ["check", "examples/example-sbom.json", "--format", "bogus"])
+        assert result.exit_code != 0
+        assert "bogus" in result.output
+
+    def test_unknown_scan_tool_rejected(self):
+        result = runner.invoke(app, ["scan", "--tool", "syft"])
+        assert result.exit_code != 0
+        assert "syft" in result.output
+
+    def test_unknown_gost_default_rejected(self, tmp_path):
+        result = runner.invoke(
+            app,
+            ["postprocess", "examples/example-sbom.json", str(tmp_path / "o.json"), "--gost-default", "bogus"],
+        )
+        assert result.exit_code != 0
+
+    def test_format_values_are_completable(self):
+        """Значения перечисления должны быть видны typer — иначе автодополнение бесполезно."""
+        result = runner.invoke(app, ["check", "--help"])
+        assert "oss" in result.output and "container" in result.output
+
+
+class TestReadinessExitCode:
+    def test_incomplete_listing_uses_dedicated_code(self, tmp_path):
+        comp = make_component("requests", "2.32.5")
+        comp["properties"] = [
+            {"name": "GOST:attack_surface", "value": "no"},
+            {"name": "GOST:security_function", "value": "no"},
+        ]
+        comp["externalReferences"] = [{"type": "vcs", "url": "https://github.com/psf/requests"}]
+        path = tmp_path / "bom.json"
+        path.write_text(json.dumps(make_bom([comp]), ensure_ascii=False), encoding="utf-8")
+
+        result = runner.invoke(app, ["check", str(path)])
+        assert result.exit_code == 3
+
+    def test_missing_input_rejected_for_every_command(self, tmp_path):
+        absent = str(tmp_path / "нет.json")
+        out = str(tmp_path / "out.json")
+        commands = [
+            ["postprocess", absent, out],
+            ["export", "csv", absent, out],
+            ["export", "odt", absent, out],
+            ["update", absent, out],
+            ["config", "init", absent],
+        ]
+        for command in commands:
+            result = runner.invoke(app, command)
+            assert result.exit_code != 0, command
+            assert "Traceback" not in result.output, command

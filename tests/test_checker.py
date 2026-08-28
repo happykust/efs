@@ -172,9 +172,10 @@ class TestExitCodes:
         del bom["specVersion"]
         assert checker.run(args_for(write_json("bom.json", bom))) == 1
 
-    def test_incomplete_listing_returns_two(self, write_json):
+    def test_incomplete_listing_returns_three(self, write_json):
+        """Код 2 занят click под ошибку использования, поэтому незаполненность — 3."""
         bom = make_bom([gost_component("requests", "2.32.5")])
-        assert checker.run(args_for(write_json("bom.json", bom))) == 2
+        assert checker.run(args_for(write_json("bom.json", bom))) == 3
 
     def test_unreachable_repository_returns_one(self, write_json, monkeypatch):
         monkeypatch.setattr(checker, "load_cache", lambda kind: {})

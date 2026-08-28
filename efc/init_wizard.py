@@ -17,7 +17,7 @@ _SUPPORTED_TOOLS = [
     questionary.Choice("trivy (Aqua Security)", value="trivy"),
 ]
 
-_CONFIG_FILENAME = '.sbom-config.json'
+_CONFIG_FILENAME = ".sbom-config.json"
 
 
 def _step_scanner_choice() -> tuple[str, str] | None:
@@ -98,7 +98,7 @@ def _step_config(sbom_filename: str, tool: str):
         "target": ".",
         "options": {},
     }
-    with open(config_path, 'w', encoding='utf-8') as f:
+    with open(config_path, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2, ensure_ascii=False)
 
     console.print("  [green]✓[/green] Конфиг создан (включая настройки сканера)")
@@ -108,7 +108,7 @@ def _iter_components_flat(components):
     """Рекурсивный обход всех компонентов (включая вложенные)."""
     for comp in components:
         yield comp
-        yield from _iter_components_flat(comp.get('components', []))
+        yield from _iter_components_flat(comp.get("components", []))
 
 
 def _step_vcs_refs(sbom_filename: str):
@@ -143,11 +143,11 @@ def _step_vcs_refs(sbom_filename: str):
         config = json.load(f)
 
     # Собрать уникальные purl из SBOM
-    components = list(_iter_components_flat(bom.get('components', [])))
+    components = list(_iter_components_flat(bom.get("components", [])))
     purls = []
     seen = set()
     for comp in components:
-        purl = comp.get('purl', '')
+        purl = comp.get("purl", "")
         if purl and purl not in seen:
             purls.append(purl)
             seen.add(purl)
@@ -172,25 +172,25 @@ def _step_vcs_refs(sbom_filename: str):
 
         for idx, purl in enumerate(purls, 1):
             base_purl = _purl_without_version(purl)
-            progress.update(task, completed=idx, component=base_purl.split('/')[-1])
+            progress.update(task, completed=idx, component=base_purl.split("/")[-1])
 
             # Пропустить если в конфиге уже есть VCS для этого purl
-            entry = config.get('components', {}).get(base_purl, {})
-            if entry.get('vcs'):
+            entry = config.get("components", {}).get(base_purl, {})
+            if entry.get("vcs"):
                 skipped += 1
                 continue
 
             url = ref_finder.process_purl(purl)
-            if url and not url.startswith('sbom-updater_generated_placeholder:'):
-                if base_purl not in config.get('components', {}):
-                    config.setdefault('components', {})[base_purl] = {}
-                config['components'][base_purl]['vcs'] = url
+            if url and not url.startswith("sbom-updater_generated_placeholder:"):
+                if base_purl not in config.get("components", {}):
+                    config.setdefault("components", {})[base_purl] = {}
+                config["components"][base_purl]["vcs"] = url
                 found += 1
 
     ref_finder.dump_repos()
 
     # Сохранить обновлённый конфиг
-    with open(config_path, 'w', encoding='utf-8') as f:
+    with open(config_path, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2, ensure_ascii=False)
 
     console.print(f"  [green]✓[/green] Найдено VCS-ссылок: {found}, пропущено (уже есть): {skipped}")

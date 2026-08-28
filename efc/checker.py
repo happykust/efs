@@ -17,13 +17,13 @@ _PKG_DIR = Path(__file__).parent.resolve()
 
 
 def run(args):
-    if getattr(args, 'verbose', False):
-        logging.basicConfig(format='%(message)s', level="INFO")
+    if getattr(args, "verbose", False):
+        logging.basicConfig(format="%(message)s", level="INFO")
 
     registry = None
-    with open(_PKG_DIR / 'additional_schemas' / "spdx.schema.json") as f:
+    with open(_PKG_DIR / "additional_schemas" / "spdx.schema.json") as f:
         resource1 = Resource.from_contents(json.load(f))
-    with open(_PKG_DIR / 'additional_schemas' / "jsf-0.82.schema.json") as f:
+    with open(_PKG_DIR / "additional_schemas" / "jsf-0.82.schema.json") as f:
         resource2 = Resource.from_contents(json.load(f))
     registry = Registry().with_resources(
         [
@@ -38,7 +38,9 @@ def run(args):
     with open(args.filename, encoding=encoding) as f:
         parsed_file = json.load(f)
     try:
-        with open(_PKG_DIR / 'schemas' / ('schema_container.json' if args.format == 'container' else 'schema.json')) as f:
+        with open(
+            _PKG_DIR / "schemas" / ("schema_container.json" if args.format == "container" else "schema.json")
+        ) as f:
             schema = json.load(f)
         cls = jsonschema.validators.validator_for(schema)
         cls.check_schema(schema)
@@ -51,51 +53,55 @@ def run(args):
         limit = args.errors
         for err in errors:
             count += 1
-            if err.message.endswith(' has non-unique elements'):
+            if err.message.endswith(" has non-unique elements"):
                 arr = err.instance
                 dups = []
                 for n, i in enumerate(arr):
-                    if i in arr[n+1:] and i not in dups:
+                    if i in arr[n + 1 :] and i not in dups:
                         dups.append(i)
-                inst = ''
-                for line in str(err).split('\n'):
-                    if line.startswith('On instance'):
+                inst = ""
+                for line in str(err).split("\n"):
+                    if line.startswith("On instance"):
                         inst = line[:-1]
                         break
-                print(f'ERROR: {inst} non-unique elements:\n' + '\n'.join([str(x) for x in dups]))
-            elif err.message.startswith('Additional properties are not allowed'):
-                print(f'ERROR: {err.message}\n\nOn {jsonschema.exceptions._pretty(err.instance, 16 * " ")}')
+                print(f"ERROR: {inst} non-unique elements:\n" + "\n".join([str(x) for x in dups]))
+            elif err.message.startswith("Additional properties are not allowed"):
+                print(f"ERROR: {err.message}\n\nOn {jsonschema.exceptions._pretty(err.instance, 16 * ' ')}")
             else:
                 print("ERROR: " + str(err))
-            print('-'*50)
+            print("-" * 50)
             if limit and count == limit:
                 break
-        if args.format == 'container':
-            values = {'yes': 2, 'indirect': 1, 'no': 0}
-            for container in parsed_file.get('components', []):
-                attack_surface = get_prop(container.get('properties', []), 'GOST:attack_surface')
-                security_function = get_prop(container.get('properties', []), 'GOST:security_function')
-                stack = container.get('components', []).copy()
+        if args.format == "container":
+            values = {"yes": 2, "indirect": 1, "no": 0}
+            for container in parsed_file.get("components", []):
+                attack_surface = get_prop(container.get("properties", []), "GOST:attack_surface")
+                security_function = get_prop(container.get("properties", []), "GOST:security_function")
+                stack = container.get("components", []).copy()
                 eq_as = eq_sf = False
                 while stack:
                     component = stack.pop(0)
-                    components_value = component.get('components', [])
+                    components_value = component.get("components", [])
                     if components_value:
                         stack += components_value
-                    component_attack_surface = get_prop(component.get('properties', []), 'GOST:attack_surface')
-                    component_security_function = get_prop(component.get('properties', []), 'GOST:security_function')
+                    component_attack_surface = get_prop(component.get("properties", []), "GOST:attack_surface")
+                    component_security_function = get_prop(component.get("properties", []), "GOST:security_function")
                     if values[component_attack_surface] > values[attack_surface]:
                         count += 1
-                        print(f"ERROR: контейнер \"{container['name']}\" содержит компонент \"{component['name']}\" с бóльшим значением поверхности атаки ({component_attack_surface} > {attack_surface})")
-                        print('-'*50)
+                        print(
+                            f'ERROR: контейнер "{container["name"]}" содержит компонент "{component["name"]}" с бóльшим значением поверхности атаки ({component_attack_surface} > {attack_surface})'
+                        )
+                        print("-" * 50)
                     elif not eq_as and values[component_attack_surface] == values[attack_surface]:
                         eq_as = True
                     if limit and count >= limit:
                         break
                     if values[component_security_function] > values[security_function]:
                         count += 1
-                        print(f"ERROR: контейнер \"{container['name']}\" содержит компонент \"{component['name']}\" с бóльшим значением функции безопасности ({component_security_function} > {security_function})")
-                        print('-'*50)
+                        print(
+                            f'ERROR: контейнер "{container["name"]}" содержит компонент "{component["name"]}" с бóльшим значением функции безопасности ({component_security_function} > {security_function})'
+                        )
+                        print("-" * 50)
                     elif not eq_sf and values[component_security_function] == values[security_function]:
                         eq_sf = True
                     if limit and count >= limit:
@@ -103,85 +109,94 @@ def run(args):
                 else:
                     if not eq_as:
                         count += 1
-                        print(f"ERROR: контейнер \"{container['name']}\" не содержит компонентов со значением его поверхности атаки ({attack_surface})")
-                        print('-'*50)
+                        print(
+                            f'ERROR: контейнер "{container["name"]}" не содержит компонентов со значением его поверхности атаки ({attack_surface})'
+                        )
+                        print("-" * 50)
                     if limit and count >= limit:
                         break
                     if not eq_sf:
                         count += 1
-                        print(f"ERROR: контейнер \"{container['name']}\" не содержит компонентов со значением его функции безопасности ({security_function})")
-                        print('-'*50)
+                        print(
+                            f'ERROR: контейнер "{container["name"]}" не содержит компонентов со значением его функции безопасности ({security_function})'
+                        )
+                        print("-" * 50)
                     if limit and count >= limit:
                         break
                     continue
                 break
         if args.check_vcs or args.check_vcs_leaf_only or args.check_source_distribution:
             import os
-            os.environ['GIT_TERMINAL_PROMPT'] = '0'
-            stack = parsed_file.get('components', []).copy()
+
+            os.environ["GIT_TERMINAL_PROMPT"] = "0"
+            stack = parsed_file.get("components", []).copy()
             not_repos = 0
-            repo_dict = load_cache('vcs')
+            repo_dict = load_cache("vcs")
             src_list = set()
-            src_results = load_cache('source-distribution')
+            src_results = load_cache("source-distribution")
             not_arch_url = 0
             refs_to_check = dict()
             while stack:
                 component = stack.pop(0)
-                components_value = component.get('components', [])
+                components_value = component.get("components", [])
                 if components_value:
                     stack += components_value
                 if args.check_vcs_leaf_only and components_value:
                     continue
-                refs = component.get('externalReferences', [])
+                refs = component.get("externalReferences", [])
                 if isinstance(refs, list):
                     for ref in refs:
-                        if isinstance(ref, dict) and ref.get('type', '') == 'vcs':
-                            url = ref.get('url', '')
+                        if isinstance(ref, dict) and ref.get("type", "") == "vcs":
+                            url = ref.get("url", "")
                             res = parse_repo_url(url)
                             if res and res[1]:
                                 url = res[0]
-                            ex_str = ''
+                            ex_str = ""
                             if url not in repo_dict:
                                 if url not in refs_to_check:
                                     refs_to_check[url] = set()
-                                refs_to_check[url].add(ref.get('url', ''))
+                                refs_to_check[url].add(ref.get("url", ""))
                         if args.check_source_distribution:
-                            if isinstance(ref, dict) and ref.get('type', '') == 'source-distribution':
-                                url = ref.get('url', '')
+                            if isinstance(ref, dict) and ref.get("type", "") == "source-distribution":
+                                url = ref.get("url", "")
                                 if url not in src_results:
                                     src_list.add(url)
             session = Session()
             with concurrent.futures.ThreadPoolExecutor() as executor:
-                future_to_url = {executor.submit(check_repo, url): ('vcs', url) for url in refs_to_check.keys()}
-                future_to_url.update({executor.submit(is_archive_url, session, url): ('source-distribution', url) for url in src_list})
+                future_to_url = {executor.submit(check_repo, url): ("vcs", url) for url in refs_to_check.keys()}
+                future_to_url.update(
+                    {executor.submit(is_archive_url, session, url): ("source-distribution", url) for url in src_list}
+                )
                 for future in concurrent.futures.as_completed(future_to_url):
                     ref_type, url = future_to_url[future]
                     try:
-                        if ref_type == 'vcs':
+                        if ref_type == "vcs":
                             repo_dict[url], ex_str = future.result()
-                        elif ref_type == 'source-distribution':
+                        elif ref_type == "source-distribution":
                             src_results[url], ex_str = future.result()
                     except Exception as exc:
                         count += 1
-                        print(f'ERROR: {url!r} generated an exception: {exc}')
+                        print(f"ERROR: {url!r} generated an exception: {exc}")
                     else:
-                        if ref_type == 'vcs' and not repo_dict[url]:
+                        if ref_type == "vcs" and not repo_dict[url]:
                             not_repos += len(refs_to_check[url])
                             for u in sorted(list(refs_to_check[url])):
                                 logging.info(ex_str)
-                                print(f"WARNING: {u} не подходит под шаблон и не является git/svn/hg/fossil-репозиторием")
-                                print('-'*50)
-                        if ref_type == 'source-distribution' and not src_results[url]:
+                                print(
+                                    f"WARNING: {u} не подходит под шаблон и не является git/svn/hg/fossil-репозиторием"
+                                )
+                                print("-" * 50)
+                        if ref_type == "source-distribution" and not src_results[url]:
                             not_arch_url += 1
                             logging.info(ex_str)
                             print(f"WARNING: {url} не указывает на архив или не существует")
-                            print('-'*50)
-            dump_cache('vcs', {k:v for k,v in repo_dict.items() if v})
-            dump_cache('source-distribution', {k:v for k,v in src_results.items() if v})
+                            print("-" * 50)
+            dump_cache("vcs", {k: v for k, v in repo_dict.items() if v})
+            dump_cache("source-distribution", {k: v for k, v in src_results.items() if v})
             if not_repos == 0 and count == 0 and not_arch_url == 0:
-                print('файл корректный')
+                print("файл корректный")
         elif count == 0:
-            print('файл корректный')
+            print("файл корректный")
     except jsonschema.exceptions.SchemaError as se:
-        print('ошибка в файле-спецификации:')
+        print("ошибка в файле-спецификации:")
         print(se)

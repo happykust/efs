@@ -106,9 +106,12 @@ def run_trivy(target: str, output: str, options: dict | None = None) -> bool:
     extra_args = options.get("args", [])
 
     cmd = [
-        "trivy", command,
-        "--format", "cyclonedx",
-        "--output", output,
+        "trivy",
+        command,
+        "--format",
+        "cyclonedx",
+        "--output",
+        output,
         *extra_args,
         target,
     ]

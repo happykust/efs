@@ -14,7 +14,9 @@ app = typer.Typer(
 )
 export_app = typer.Typer(name="export", help="Экспорт SBOM в различные форматы", invoke_without_command=True)
 app.add_typer(export_app)
-config_app = typer.Typer(name="config", help="Управление единым конфигом .sbom-config.json", invoke_without_command=True)
+config_app = typer.Typer(
+    name="config", help="Управление единым конфигом .sbom-config.json", invoke_without_command=True
+)
 app.add_typer(config_app)
 
 state = {"verbose": False}
@@ -50,8 +52,12 @@ def cmd_check(
     filename: str = typer.Argument(..., help="входной файл в формате CycloneDX JSON для проверки"),
     errors: int = typer.Option(10, "-e", "--errors", help="максимальное число ошибок для вывода; 0 = все"),
     check_vcs: bool = typer.Option(False, "--check-vcs", help="проверка url типа vcs на git/svn/hg/fossil-репозиторий"),
-    check_vcs_leaf_only: bool = typer.Option(False, "--check-vcs-leaf-only", help="то же, что и --check-vcs, но только для листовых компонентов"),
-    check_source_distribution: bool = typer.Option(False, "--check-source-distribution", help="проверка существования URL для типа source-distribution"),
+    check_vcs_leaf_only: bool = typer.Option(
+        False, "--check-vcs-leaf-only", help="то же, что и --check-vcs, но только для листовых компонентов"
+    ),
+    check_source_distribution: bool = typer.Option(
+        False, "--check-source-distribution", help="проверка существования URL для типа source-distribution"
+    ),
     format_: str = typer.Option("oss", "--format", help="oss | container; по умолчанию oss"),
 ):
     from efc.checker import run
@@ -85,7 +91,9 @@ def cmd_update(
     purl_to_gost: str | None = typer.Option(None, "--purl-to-gost", help="путь к файлу маппинга purl→GOST"),
     init_gost_map: bool = typer.Option(False, "--init-gost-map", help="сгенерировать шаблон .purl_to_gost.json"),
     init_purl_map: bool = typer.Option(False, "--init-purl-map", help="сгенерировать шаблон .purl_to_vcs.json"),
-    extra_input: list[str] | None = typer.Option(None, "-i", "--extra-input", help="дополнительные SBOM-файлы для --init-purl-map / --init-gost-map"),
+    extra_input: list[str] | None = typer.Option(
+        None, "-i", "--extra-input", help="дополнительные SBOM-файлы для --init-purl-map / --init-gost-map"
+    ),
     fix_all: bool = typer.Option(False, "--fix-all", help="применить все опции"),
     update: str | None = typer.Option(None, "--update", metavar="OLD_SBOM", help="предыдущая версия перечня"),
 ):
@@ -189,16 +197,26 @@ def cmd_postprocess(
     app_name: str | None = typer.Option(None, "--app-name", help="название продукта"),
     app_version: str | None = typer.Option(None, "--app-version", help="версия продукта"),
     manufacturer: str | None = typer.Option(None, "--manufacturer", help="организация-изготовитель"),
-    gost_default: str = typer.Option("no", "--gost-default", help="значение ГОСТ-свойств по умолчанию (yes/no/indirect)"),
+    gost_default: str = typer.Option(
+        "no", "--gost-default", help="значение ГОСТ-свойств по умолчанию (yes/no/indirect)"
+    ),
     strip_only: bool = typer.Option(False, "--strip-only", help="только очистить лишние поля"),
     keep_all_fields: bool = typer.Option(False, "--keep-all-fields", help="не удалять необязательные поля компонентов"),
-    provided_by: str | None = typer.Option(None, "--provided-by", help="установить GOST:provided_by для leaf-компонентов"),
+    provided_by: str | None = typer.Option(
+        None, "--provided-by", help="установить GOST:provided_by для leaf-компонентов"
+    ),
     purl_to_vcs: str | None = typer.Option(None, "--purl-to-vcs", help="путь к файлу маппинга purl→vcs"),
     purl_to_gost: str | None = typer.Option(None, "--purl-to-gost", help="путь к файлу маппинга purl→GOST"),
-    purl_exclude: str | None = typer.Option(None, "--purl-exclude", help="путь к файлу списка purl для исключения (.purl_exclude.json)"),
-    init_exclude: bool = typer.Option(False, "--init-exclude", help="сгенерировать шаблон .purl_exclude.json из входного BOM и выйти"),
+    purl_exclude: str | None = typer.Option(
+        None, "--purl-exclude", help="путь к файлу списка purl для исключения (.purl_exclude.json)"
+    ),
+    init_exclude: bool = typer.Option(
+        False, "--init-exclude", help="сгенерировать шаблон .purl_exclude.json из входного BOM и выйти"
+    ),
     pretty: bool = typer.Option(True, "--pretty/--no-pretty", help="форматировать JSON"),
-    config: str | None = typer.Option(None, "--config", help="путь к .sbom-config.json (по умолчанию ищется в текущей директории)"),
+    config: str | None = typer.Option(
+        None, "--config", help="путь к .sbom-config.json (по умолчанию ищется в текущей директории)"
+    ),
 ):
     from efc.postprocess import run
 
@@ -246,6 +264,7 @@ def cmd_scan(
     if cfg is None:
         typer.echo("Конфиг .sbom-config.json не найден. Запускаем мастер инициализации...")
         from efc.init_wizard import run_wizard
+
         run_wizard(verbose=state["verbose"])
         return
 
@@ -258,7 +277,9 @@ def cmd_scan(
     scan_options = scanner_cfg.get("options", {})
 
     if scan_tool not in SUPPORTED_TOOLS:
-        typer.echo(f"ошибка: неизвестный инструмент '{scan_tool}'. Поддерживаются: {', '.join(SUPPORTED_TOOLS)}", err=True)
+        typer.echo(
+            f"ошибка: неизвестный инструмент '{scan_tool}'. Поддерживаются: {', '.join(SUPPORTED_TOOLS)}", err=True
+        )
         raise typer.Exit(code=1)
 
     success = run_scan(scan_tool, scan_target, scan_output, scan_options)
@@ -269,7 +290,9 @@ def cmd_scan(
 # ── config ─────────────────────────────────────────────────────────────────────
 
 
-@config_app.command("find-vcs", help="Найти VCS-ссылки для компонентов конфига без VCS (исключая exclude и provided_by)")
+@config_app.command(
+    "find-vcs", help="Найти VCS-ссылки для компонентов конфига без VCS (исключая exclude и provided_by)"
+)
 def cmd_config_find_vcs(
     config_path: str | None = typer.Option(None, "--config", "-c", help="путь к .sbom-config.json"),
     workers: int = typer.Option(8, "--workers", "-w", help="число параллельных потоков"),
@@ -290,23 +313,24 @@ def cmd_config_find_vcs(
 
     # Определить путь к файлу конфига для сохранения
     from pathlib import Path
+
     if config_path:
         save_path = Path(config_path)
     else:
-        save_path = Path.cwd() / '.sbom-config.json'
+        save_path = Path.cwd() / ".sbom-config.json"
 
-    components = config.get('components', {})
+    components = config.get("components", {})
 
     # Отобрать purl без VCS, не exclude, не provided_by
     purls_to_find = []
     for purl, entry in components.items():
         if not isinstance(entry, dict):
             continue
-        if entry.get('vcs'):
+        if entry.get("vcs"):
             continue
-        if entry.get('exclude'):
+        if entry.get("exclude"):
             continue
-        if entry.get('provided_by'):
+        if entry.get("provided_by"):
             continue
         purls_to_find.append(purl)
 
@@ -341,8 +365,8 @@ def cmd_config_find_vcs(
             url = ref_finder.process_purl(purl)
             with _progress_counter:
                 _completed[0] += 1
-                progress.update(task, completed=_completed[0], component=purl.split('/')[-1])
-            if url and not url.startswith('sbom-updater_generated_placeholder:'):
+                progress.update(task, completed=_completed[0], component=purl.split("/")[-1])
+            if url and not url.startswith("sbom-updater_generated_placeholder:"):
                 return purl, url
             return purl, None
 
@@ -350,20 +374,22 @@ def cmd_config_find_vcs(
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_w) as executor:
             for purl, url in executor.map(_find_vcs, purls_to_find):
                 if url:
-                    components[purl]['vcs'] = url
+                    components[purl]["vcs"] = url
                     found += 1
 
     ref_finder.dump_repos()
 
     # Сохранить обновлённый конфиг
-    with open(save_path, 'w', encoding='utf-8') as f:
+    with open(save_path, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2, ensure_ascii=False)
 
     console.print(f"[green]✓[/green] Найдено VCS: {found} из {len(purls_to_find)}")
     console.print(f"  Конфиг обновлён: {save_path}")
 
 
-@config_app.command("status", help="Показать компоненты конфига, для которых не хватает VCS, provided_by или GOST-свойств")
+@config_app.command(
+    "status", help="Показать компоненты конфига, для которых не хватает VCS, provided_by или GOST-свойств"
+)
 def cmd_config_status(
     config_path: str | None = typer.Option(None, "--config", "-c", help="путь к .sbom-config.json"),
     show_all: bool = typer.Option(False, "--all", "-a", help="показать все компоненты, не только проблемные"),
@@ -380,7 +406,7 @@ def cmd_config_status(
         console.print("[red]✗[/red] Конфиг .sbom-config.json не найден")
         raise typer.Exit(code=1)
 
-    components = config.get('components', {})
+    components = config.get("components", {})
     if not components:
         console.print("Конфиг пуст — нет компонентов.")
         return
@@ -393,12 +419,12 @@ def cmd_config_status(
     for purl, entry in sorted(components.items()):
         if not isinstance(entry, dict):
             continue
-        if entry.get('exclude'):
+        if entry.get("exclude"):
             excluded.append(purl)
             continue
-        if entry.get('provided_by'):
+        if entry.get("provided_by"):
             has_provided_by.append(purl)
-        elif entry.get('vcs'):
+        elif entry.get("vcs"):
             has_vcs.append(purl)
         else:
             # Нет ни vcs, ни provided_by, ни exclude
@@ -426,16 +452,18 @@ def cmd_config_status(
         table.add_column("тип", style="green")
         table.add_column("значение", style="dim")
         for purl in has_vcs:
-            table.add_row(purl, "vcs", components[purl].get('vcs', ''))
+            table.add_row(purl, "vcs", components[purl].get("vcs", ""))
         for purl in has_provided_by:
-            table.add_row(purl, "provided_by", components[purl].get('provided_by', ''))
+            table.add_row(purl, "provided_by", components[purl].get("provided_by", ""))
         console.print(table)
 
 
 @config_app.command("init", help="Сгенерировать .sbom-config.json из одного или нескольких SBOM")
 def cmd_config_init(
     inputs: list[str] = typer.Argument(..., metavar="INPUT", help="входные файлы CycloneDX JSON (один или несколько)"),
-    output: str | None = typer.Option(None, "-o", "--output", help="путь к выходному конфигу (по умолчанию .sbom-config.json)"),
+    output: str | None = typer.Option(
+        None, "-o", "--output", help="путь к выходному конфигу (по умолчанию .sbom-config.json)"
+    ),
 ):
     import json
 
@@ -454,7 +482,9 @@ def cmd_config_migrate(
     vcs: str | None = typer.Option(None, "--vcs", help="путь к .purl_to_vcs.json"),
     gost: str | None = typer.Option(None, "--gost", help="путь к .purl_to_gost.json"),
     exclude: str | None = typer.Option(None, "--exclude", help="путь к .purl_exclude.json"),
-    output: str | None = typer.Option(None, "-o", "--output", help="путь к выходному конфигу (по умолчанию .sbom-config.json)"),
+    output: str | None = typer.Option(
+        None, "-o", "--output", help="путь к выходному конфигу (по умолчанию .sbom-config.json)"
+    ),
 ):
     from efc.config import migrate_config
 

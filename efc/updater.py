@@ -16,12 +16,12 @@ from requests import Session, adapters
 
 from .utils import check_repo, dump_cache, load_cache, opener
 
-_PURL_TO_VCS_FILENAME = '.purl_to_vcs.json'
-_PURL_TO_GOST_FILENAME = '.purl_to_gost.json'
+_PURL_TO_VCS_FILENAME = ".purl_to_vcs.json"
+_PURL_TO_GOST_FILENAME = ".purl_to_gost.json"
 
-_GOST_PROPS = ('GOST:attack_surface', 'GOST:security_function')
-_GOST_ALLOWED_VALUES = {'yes', 'no', 'indirect'}
-_GOST_DEFAULT_VALUE = 'no'
+_GOST_PROPS = ("GOST:attack_surface", "GOST:security_function")
+_GOST_ALLOWED_VALUES = {"yes", "no", "indirect"}
+_GOST_DEFAULT_VALUE = "no"
 
 DEFAULT_VALUE = "TODO"
 
@@ -87,10 +87,10 @@ def _load_purl_to_gost(cli_path=None):
 def _set_prop(props, name, value):
     """Установить значение GOST-свойства в массиве properties (заменить существующее или добавить)."""
     for elem in props:
-        if elem.get('name', '') == name:
-            elem['value'] = value
+        if elem.get("name", "") == name:
+            elem["value"] = value
             return
-    props.append({'name': name, 'value': value})
+    props.append({"name": name, "value": value})
 
 
 def _apply_gost_props(component, purl_to_gost):
@@ -100,35 +100,39 @@ def _apply_gost_props(component, purl_to_gost):
     По умолчанию GOST:attack_surface и GOST:security_function устанавливаются в "no".
     Если purl компонента есть в соответствующей секции — берётся значение оттуда.
     """
-    if 'properties' not in component:
-        component['properties'] = []
+    if "properties" not in component:
+        component["properties"] = []
 
-    purl = component.get('purl', '')
+    purl = component.get("purl", "")
 
     for prop_name in _GOST_PROPS:
         value = purl_to_gost.get(prop_name, {}).get(purl, _GOST_DEFAULT_VALUE) if purl else _GOST_DEFAULT_VALUE
         if value not in _GOST_ALLOWED_VALUES:
-            logging.warning(f"недопустимое значение '{value}' для {prop_name} (purl: {purl}), используется '{_GOST_DEFAULT_VALUE}'")
+            logging.warning(
+                f"недопустимое значение '{value}' для {prop_name} (purl: {purl}), используется '{_GOST_DEFAULT_VALUE}'"
+            )
             value = _GOST_DEFAULT_VALUE
-        _set_prop(component['properties'], prop_name, value)
+        _set_prop(component["properties"], prop_name, value)
 
     # GOST:provided_by — устанавливается только если указано в маппинге
-    provided_by = purl_to_gost.get('GOST:provided_by', {}).get(purl, '') if purl else ''
+    provided_by = purl_to_gost.get("GOST:provided_by", {}).get(purl, "") if purl else ""
     if provided_by:
-        _set_prop(component['properties'], 'GOST:provided_by', provided_by)
+        _set_prop(component["properties"], "GOST:provided_by", provided_by)
 
 
 def has_prop(arr, name):
     for elem in arr:
-        if elem.get('name', '') == name:
+        if elem.get("name", "") == name:
             return True
     return False
 
+
 def get_website(ref_arr):
     for elem in ref_arr:
-        if elem['type'] == 'website':
+        if elem["type"] == "website":
             return elem
     return False
+
 
 class _TimeoutHTTPAdapter(adapters.HTTPAdapter):
     """HTTPAdapter с таймаутом по умолчанию."""
@@ -138,28 +142,28 @@ class _TimeoutHTTPAdapter(adapters.HTTPAdapter):
         super().__init__(*args, **kwargs)
 
     def send(self, *args, **kwargs):
-        if kwargs.get('timeout') is None:
-            kwargs['timeout'] = self._default_timeout
+        if kwargs.get("timeout") is None:
+            kwargs["timeout"] = self._default_timeout
         return super().send(*args, **kwargs)
 
 
 class RefFinder:
     def __init__(self, purl_file=None):
-        self._placeholder_url = 'sbom-updater_generated_placeholder:'
+        self._placeholder_url = "sbom-updater_generated_placeholder:"
         self._nuget_addr = None
         self._lock = threading.Lock()
         self._session = Session()
         adapter = _TimeoutHTTPAdapter(max_retries=5, pool_connections=10, pool_maxsize=10)
-        self._session.mount('http://', adapter=adapter)
-        self._session.mount('https://', adapter=adapter)
+        self._session.mount("http://", adapter=adapter)
+        self._session.mount("https://", adapter=adapter)
         self._prefixes = {
-            'pkg:nuget/': self._nuget_purl,
-            'pkg:gem/': self._gem_purl,
-            'pkg:pypi/': self._pypi_purl,
-            'pkg:npm/': self._npm_purl,
-            'pkg:maven/': self._maven_purl,
-            'pkg:rpm/': self._rpm_purl,
-            'pkg:deb/': self._deb_purl,
+            "pkg:nuget/": self._nuget_purl,
+            "pkg:gem/": self._gem_purl,
+            "pkg:pypi/": self._pypi_purl,
+            "pkg:npm/": self._npm_purl,
+            "pkg:maven/": self._maven_purl,
+            "pkg:rpm/": self._rpm_purl,
+            "pkg:deb/": self._deb_purl,
         }
         self._purl_to_url = dict()
         try:
@@ -167,8 +171,8 @@ class RefFinder:
                 self._purl_to_url = json.load(f)
         except Exception:
             pass
-        self._repo_dict = load_cache('vcs')
-        os.environ['GIT_TERMINAL_PROMPT'] = '0'
+        self._repo_dict = load_cache("vcs")
+        os.environ["GIT_TERMINAL_PROMPT"] = "0"
 
     def is_repo(self, url):
         with self._lock:
@@ -182,25 +186,25 @@ class RefFinder:
         return result
 
     def dump_repos(self):
-        dump_cache('vcs', {k:v for k,v in self._repo_dict.items() if v})
+        dump_cache("vcs", {k: v for k, v in self._repo_dict.items() if v})
 
     def process_purl(self, purl):
         with self._lock:
             if purl in self._purl_to_url:
                 return self._purl_to_url[purl]
-        logging.info(f'обработка purl {purl}')
+        logging.info(f"обработка purl {purl}")
 
         urls = self._ecosystems(purl)
-        url = self._analyse_urls(urls, purl, 'ecosyste.ms: ')
+        url = self._analyse_urls(urls, purl, "ecosyste.ms: ")
         if not url:
             for k, f in self._prefixes.items():
                 if purl.startswith(k):
                     urls = f(purl)
-                    url = self._analyse_urls(urls, purl, '')
+                    url = self._analyse_urls(urls, purl, "")
                     break
             else:
-                logging.info(f'не удалось найти репозиторий для purl {purl}')
-        logging.info('-'*50)
+                logging.info(f"не удалось найти репозиторий для purl {purl}")
+        logging.info("-" * 50)
         result = url if url else self._placeholder_url
         with self._lock:
             self._purl_to_url[purl] = result
@@ -209,12 +213,12 @@ class RefFinder:
     def _analyse_urls(self, urls, purl, log_prefix):
         for url in urls:
             if isinstance(url, str):
-                if url.startswith('git://'):
+                if url.startswith("git://"):
                     url = "https" + url[3:]
                 if self.is_repo(url):
-                    logging.info(f'{log_prefix}найден репозиторий {url} среди {urls}')
+                    logging.info(f"{log_prefix}найден репозиторий {url} среди {urls}")
                     return url
-        logging.info(f'{log_prefix}ни одна из {urls} не является git-репозиторием')
+        logging.info(f"{log_prefix}ни одна из {urls} не является git-репозиторием")
         return None
 
     def _ecosystems(self, purl):
@@ -225,11 +229,15 @@ class RefFinder:
             return []
         if isinstance(ecosystems_data, list) and ecosystems_data:
             ecosystems_data = ecosystems_data[0]
-            return [ecosystems_data.get("repository_url", ''), ecosystems_data.get("registry_url", ''), ecosystems_data.get("homepage", '')]
+            return [
+                ecosystems_data.get("repository_url", ""),
+                ecosystems_data.get("registry_url", ""),
+                ecosystems_data.get("homepage", ""),
+            ]
         return []
 
     def _nuget_purl(self, purl):
-        id, version = purl.split("@") if '@' in purl else (purl, '')
+        id, version = purl.split("@") if "@" in purl else (purl, "")
         id = id[10:]
         if not self._nuget_addr:
             with self._session.get("https://api.nuget.org/v3/index.json") as res:
@@ -248,28 +256,30 @@ class RefFinder:
                         if child2.text not in urls:
                             urls.append(child2.text)
                     elif child2.tag.endswith("repository"):
-                        if child2.attrib.get("url", ''):
-                            if child2.attrib['url'] not in urls:
-                                urls.append(child2.attrib['url'])
+                        if child2.attrib.get("url", ""):
+                            if child2.attrib["url"] not in urls:
+                                urls.append(child2.attrib["url"])
         return list(reversed(urls))
 
     def _gem_purl(self, purl):
-        id, version = purl.split("@") if '@' in purl else (purl, '')
+        id, version = purl.split("@") if "@" in purl else (purl, "")
         id = id[8:]
         gem_data = dict()
         urls = []
-        kws = ['source_code_uri', 'project_uri', 'homepage_uri']
+        kws = ["source_code_uri", "project_uri", "homepage_uri"]
         try:
-            with self._session.get(f'https://rubygems.org/api/v2/rubygems/{id.lower()}/versions/{version.lower()}.json') as res:
+            with self._session.get(
+                f"https://rubygems.org/api/v2/rubygems/{id.lower()}/versions/{version.lower()}.json"
+            ) as res:
                 gem_data = res.json()
         except Exception:
             return []
-        md = gem_data.get('metadata', dict())
+        md = gem_data.get("metadata", dict())
         for kw in kws:
-            url = gem_data.get(kw, '')
+            url = gem_data.get(kw, "")
             if url and url not in urls:
                 urls.append(url)
-            url = md.get(kw, '')
+            url = md.get(kw, "")
             if url and url not in urls:
                 urls.append(url)
         return urls
@@ -278,20 +288,20 @@ class RefFinder:
         """Поиск VCS через PyPI JSON API."""
         name = purl.split("@")[0][9:]
         try:
-            with self._session.get(f'https://pypi.org/pypi/{name}/json') as res:
+            with self._session.get(f"https://pypi.org/pypi/{name}/json") as res:
                 if res.status_code != 200:
                     return []
                 data = res.json()
         except Exception:
             return []
         urls = []
-        project_urls = data.get('info', {}).get('project_urls') or {}
-        for key in ('Source', 'Source Code', 'Repository', 'Code', 'GitHub', 'Homepage'):
+        project_urls = data.get("info", {}).get("project_urls") or {}
+        for key in ("Source", "Source Code", "Repository", "Code", "GitHub", "Homepage"):
             for purl_key, purl_url in project_urls.items():
-                if purl_key.lower().replace(' ', '') == key.lower().replace(' ', '') and purl_url:
+                if purl_key.lower().replace(" ", "") == key.lower().replace(" ", "") and purl_url:
                     if purl_url not in urls:
                         urls.append(purl_url)
-        home_page = data.get('info', {}).get('home_page', '')
+        home_page = data.get("info", {}).get("home_page", "")
         if home_page and home_page not in urls:
             urls.append(home_page)
         return urls
@@ -300,29 +310,29 @@ class RefFinder:
         """Поиск VCS через npm registry API."""
         name_ver = purl[8:]
         name = name_ver.split("@")[-2] if name_ver.count("@") >= 2 else name_ver.split("@")[0]
-        if name.startswith('%40'):
-            name = '@' + name[3:]
+        if name.startswith("%40"):
+            name = "@" + name[3:]
         try:
-            with self._session.get(f'https://registry.npmjs.org/{name}') as res:
+            with self._session.get(f"https://registry.npmjs.org/{name}") as res:
                 if res.status_code != 200:
                     return []
                 data = res.json()
         except Exception:
             return []
         urls = []
-        repo = data.get('repository', {})
+        repo = data.get("repository", {})
         if isinstance(repo, dict):
-            repo_url = repo.get('url', '')
+            repo_url = repo.get("url", "")
             if repo_url:
-                for prefix in ('git+https://', 'git+http://', 'git://'):
+                for prefix in ("git+https://", "git+http://", "git://"):
                     if repo_url.startswith(prefix):
-                        repo_url = 'https://' + repo_url[len(prefix):]
+                        repo_url = "https://" + repo_url[len(prefix) :]
                         break
-                if repo_url.endswith('.git'):
+                if repo_url.endswith(".git"):
                     repo_url = repo_url[:-4]
                 if repo_url not in urls:
                     urls.append(repo_url)
-        homepage = data.get('homepage', '')
+        homepage = data.get("homepage", "")
         if homepage and homepage not in urls:
             urls.append(homepage)
         return urls
@@ -331,13 +341,13 @@ class RefFinder:
         """Поиск VCS через Maven Central API."""
         parts = purl[10:]
         name_part = parts.split("@")[0]
-        if '/' in name_part:
-            group_id, artifact_id = name_part.split('/', 1)
+        if "/" in name_part:
+            group_id, artifact_id = name_part.split("/", 1)
         else:
             return []
         try:
             with self._session.get(
-                f'https://search.maven.org/solrsearch/select?q=g:{group_id}+AND+a:{artifact_id}&rows=1&wt=json'
+                f"https://search.maven.org/solrsearch/select?q=g:{group_id}+AND+a:{artifact_id}&rows=1&wt=json"
             ) as res:
                 if res.status_code != 200:
                     return []
@@ -345,40 +355,40 @@ class RefFinder:
         except Exception:
             return []
         urls = []
-        docs = data.get('response', {}).get('docs', [])
+        docs = data.get("response", {}).get("docs", [])
         if not docs:
             return []
         doc = docs[0]
-        version = doc.get('latestVersion', '')
+        version = doc.get("latestVersion", "")
         if version:
-            group_path = group_id.replace('.', '/')
-            pom_url = f'https://repo1.maven.org/maven2/{group_path}/{artifact_id}/{version}/{artifact_id}-{version}.pom'
+            group_path = group_id.replace(".", "/")
+            pom_url = f"https://repo1.maven.org/maven2/{group_path}/{artifact_id}/{version}/{artifact_id}-{version}.pom"
             try:
                 with self._session.get(pom_url) as res:
                     if res.status_code == 200:
                         root = ET.fromstring(res.text)
-                        ns = ''
-                        if root.tag.startswith('{'):
-                            ns = root.tag[:root.tag.index('}') + 1]
-                        scm = root.find(f'{ns}scm')
+                        ns = ""
+                        if root.tag.startswith("{"):
+                            ns = root.tag[: root.tag.index("}") + 1]
+                        scm = root.find(f"{ns}scm")
                         if scm is not None:
-                            scm_url = scm.findtext(f'{ns}url', '')
-                            scm_conn = scm.findtext(f'{ns}connection', '')
+                            scm_url = scm.findtext(f"{ns}url", "")
+                            scm_conn = scm.findtext(f"{ns}connection", "")
                             if scm_url and scm_url not in urls:
                                 urls.append(scm_url)
                             if scm_conn:
                                 conn = scm_conn
-                                for prefix in ('scm:git:', 'scm:svn:', 'scm:'):
+                                for prefix in ("scm:git:", "scm:svn:", "scm:"):
                                     if conn.startswith(prefix):
-                                        conn = conn[len(prefix):]
+                                        conn = conn[len(prefix) :]
                                         break
-                                if conn.startswith('git://'):
-                                    conn = 'https://' + conn[6:]
-                                if conn.endswith('.git'):
+                                if conn.startswith("git://"):
+                                    conn = "https://" + conn[6:]
+                                if conn.endswith(".git"):
                                     conn = conn[:-4]
                                 if conn and conn not in urls:
                                     urls.append(conn)
-                        proj_url = root.findtext(f'{ns}url', '')
+                        proj_url = root.findtext(f"{ns}url", "")
                         if proj_url and proj_url not in urls:
                             urls.append(proj_url)
             except Exception:
@@ -389,52 +399,52 @@ class RefFinder:
         """Поиск VCS через Fedora/CentOS/РЕД ОС/Rocky Linux."""
         name_part = purl[8:]
         name_part = name_part.split("@")[0]
-        if '/' in name_part:
-            name_part = name_part.split('/', 1)[-1]
+        if "/" in name_part:
+            name_part = name_part.split("/", 1)[-1]
         urls = []
-        urls.append(f'https://src.fedoraproject.org/rpms/{name_part}')
-        urls.append(f'https://gitlab.com/redhat/centos-stream/rpms/{name_part}')
-        urls.append(f'https://git.rockylinux.org/staging/rpms/{name_part}')
+        urls.append(f"https://src.fedoraproject.org/rpms/{name_part}")
+        urls.append(f"https://gitlab.com/redhat/centos-stream/rpms/{name_part}")
+        urls.append(f"https://git.rockylinux.org/staging/rpms/{name_part}")
         return urls
 
     def _deb_purl(self, purl):
         """Поиск VCS через Debian Sources API и салса (salsa.debian.org)."""
         name_part = purl[8:]
         name_part = name_part.split("@")[0]
-        distro = ''
-        if '/' in name_part:
-            distro, name_part = name_part.split('/', 1)
+        distro = ""
+        if "/" in name_part:
+            distro, name_part = name_part.split("/", 1)
         urls = []
         try:
-            with self._session.get(f'https://sources.debian.org/api/src/{name_part}/') as res:
+            with self._session.get(f"https://sources.debian.org/api/src/{name_part}/") as res:
                 if res.status_code == 200:
                     data = res.json()
-                    vcs_git = data.get('info', {}).get('vcs_git', '') if isinstance(data.get('info'), dict) else ''
-                    if not vcs_git and isinstance(data.get('versions'), list):
-                        for ver in data['versions']:
+                    vcs_git = data.get("info", {}).get("vcs_git", "") if isinstance(data.get("info"), dict) else ""
+                    if not vcs_git and isinstance(data.get("versions"), list):
+                        for ver in data["versions"]:
                             if isinstance(ver, dict):
-                                vcs_git = ver.get('vcs_git', '')
+                                vcs_git = ver.get("vcs_git", "")
                                 if vcs_git:
                                     break
                     if vcs_git:
-                        if vcs_git.endswith('.git'):
+                        if vcs_git.endswith(".git"):
                             vcs_git = vcs_git[:-4]
                         if vcs_git not in urls:
                             urls.append(vcs_git)
         except Exception:
             pass
-        urls.append(f'https://salsa.debian.org/debian/{name_part}')
-        urls.append(f'https://git.altlinux.org/gears/{name_part[0]}/{name_part}.git')
-        urls.append(f'https://git.altlinux.org/srpms/{name_part[0]}/{name_part}.git')
-        if distro == 'ubuntu':
-            urls.append(f'https://git.launchpad.net/ubuntu/+source/{name_part}')
+        urls.append(f"https://salsa.debian.org/debian/{name_part}")
+        urls.append(f"https://git.altlinux.org/gears/{name_part[0]}/{name_part}.git")
+        urls.append(f"https://git.altlinux.org/srpms/{name_part[0]}/{name_part}.git")
+        if distro == "ubuntu":
+            urls.append(f"https://git.launchpad.net/ubuntu/+source/{name_part}")
         return urls
 
 
 def _has_provided_by(component):
     """Проверить наличие свойства GOST:provided_by у компонента."""
-    for p in component.get('properties', []):
-        if p.get('name') == 'GOST:provided_by' and p.get('value'):
+    for p in component.get("properties", []):
+        if p.get("name") == "GOST:provided_by" and p.get("value"):
             return True
     return False
 
@@ -447,17 +457,17 @@ def _extract_purls(filenames, skip_provided_by=False, purl_to_gost=None):
     """
     provided_by_purls = set()
     if skip_provided_by and purl_to_gost:
-        provided_by_purls = {k for k, v in purl_to_gost.get('GOST:provided_by', {}).items() if v}
+        provided_by_purls = {k for k, v in purl_to_gost.get("GOST:provided_by", {}).items() if v}
 
     purls = set()
     for fn in filenames:
         data, _ = opener(fn)
-        stack = data.get('components', []).copy()
+        stack = data.get("components", []).copy()
         while stack:
             comp = stack.pop(0)
-            if 'components' in comp:
-                stack += comp['components']
-            purl = comp.get('purl', '')
+            if "components" in comp:
+                stack += comp["components"]
+            purl = comp.get("purl", "")
             if not purl:
                 continue
             if skip_provided_by:
@@ -468,14 +478,14 @@ def _extract_purls(filenames, skip_provided_by=False, purl_to_gost=None):
 
 
 def run(args, progress_callback=None):
-    if getattr(args, 'verbose', False):
-        logging.basicConfig(format='%(message)s', level="INFO")
+    if getattr(args, "verbose", False):
+        logging.basicConfig(format="%(message)s", level="INFO")
 
     if not args.init_purl_map and not args.init_gost_map and not args.output:
-        print('ошибка: аргумент output обязателен (если не используется --init-purl-map или --init-gost-map)')
+        print("ошибка: аргумент output обязателен (если не используется --init-purl-map или --init-gost-map)")
         sys.exit(1)
 
-    extra = getattr(args, 'extra_input', None) or []
+    extra = getattr(args, "extra_input", None) or []
 
     if args.init_gost_map:
         purls = _extract_purls([args.input] + extra)
@@ -489,8 +499,8 @@ def run(args, progress_callback=None):
         for prop_name in _GOST_PROPS:
             if prop_name not in existing:
                 existing[prop_name] = {}
-        if 'GOST:provided_by' not in existing:
-            existing['GOST:provided_by'] = {}
+        if "GOST:provided_by" not in existing:
+            existing["GOST:provided_by"] = {}
         # Удалить purl, которых нет во входном файле
         removed = 0
         for prop_name in list(existing.keys()):
@@ -508,13 +518,13 @@ def run(args, progress_callback=None):
                 if purl not in existing[prop_name]:
                     existing[prop_name][purl] = _GOST_DEFAULT_VALUE
                     added += 1
-        with open(out_path, 'w', encoding='utf-8') as f:
+        with open(out_path, "w", encoding="utf-8") as f:
             json.dump(existing, f, indent=2, ensure_ascii=False)
         total = len(purls)
         non_default = 0
         for prop_name in _GOST_PROPS:
             non_default += sum(1 for v in existing[prop_name].values() if v != _GOST_DEFAULT_VALUE)
-        non_default += sum(1 for v in existing.get('GOST:provided_by', {}).values() if v)
+        non_default += sum(1 for v in existing.get("GOST:provided_by", {}).values() if v)
         print(f"Записано в {out_path}: {total} purl")
         print(f"  Нестандартных значений: {non_default}")
         if removed:
@@ -523,7 +533,7 @@ def run(args, progress_callback=None):
             return
 
     if args.init_purl_map:
-        purl_to_gost = _load_purl_to_gost(getattr(args, 'purl_to_gost', None))
+        purl_to_gost = _load_purl_to_gost(getattr(args, "purl_to_gost", None))
         purls = _extract_purls([args.input] + extra, skip_provided_by=True, purl_to_gost=purl_to_gost)
         out_path = Path.cwd() / _PURL_TO_VCS_FILENAME
         existing = {}
@@ -537,7 +547,7 @@ def run(args, progress_callback=None):
         for purl in purls:
             if purl not in existing:
                 existing[purl] = ""
-        with open(out_path, 'w', encoding='utf-8') as f:
+        with open(out_path, "w", encoding="utf-8") as f:
             json.dump(existing, f, indent=2, ensure_ascii=False)
         filled = sum(1 for v in existing.values() if v)
         total = len(existing)
@@ -549,83 +559,89 @@ def run(args, progress_callback=None):
     input_data, encoding = opener(args.input)
 
     if args.fix_all:
-        if input_data['specVersion'] != '1.6':
+        if input_data["specVersion"] != "1.6":
             logging.info(f"смена 'specVersion' с {input_data['specVersion']} на 1.6")
-            logging.info('-'*50)
-            input_data['specVersion'] = '1.6'
+            logging.info("-" * 50)
+            input_data["specVersion"] = "1.6"
 
     if args.gost or args.fix_all:
         purl_to_gost = _load_purl_to_gost(args.purl_to_gost)
-        stack = input_data.get('components', []).copy()
+        stack = input_data.get("components", []).copy()
         while stack:
             component = stack.pop()
             _apply_gost_props(component, purl_to_gost)
-            if 'components' in component:
-                stack += component['components']
+            if "components" in component:
+                stack += component["components"]
     elif args.props:
-        stack = input_data.get('components', []).copy()
+        stack = input_data.get("components", []).copy()
         while stack:
             component = stack.pop()
-            if 'properties' not in component:
-                component['properties'] = []
-            if not has_prop(component['properties'], 'GOST:attack_surface'):
-                component['properties'].append({'name': 'GOST:attack_surface', 'value': 'yes'})
-            if not has_prop(component['properties'], 'GOST:security_function'):
-                component['properties'].append({'name': 'GOST:security_function', 'value': 'yes'})
-            if 'components' in component:
-                stack += component['components']
+            if "properties" not in component:
+                component["properties"] = []
+            if not has_prop(component["properties"], "GOST:attack_surface"):
+                component["properties"].append({"name": "GOST:attack_surface", "value": "yes"})
+            if not has_prop(component["properties"], "GOST:security_function"):
+                component["properties"].append({"name": "GOST:security_function", "value": "yes"})
+            if "components" in component:
+                stack += component["components"]
 
     if args.app_name is not None or args.fix_all:
-        if 'metadata' not in input_data:
-            input_data['metadata'] = dict()
-        if 'component' not in input_data['metadata']:
-            input_data['metadata']['component'] = dict()
+        if "metadata" not in input_data:
+            input_data["metadata"] = dict()
+        if "component" not in input_data["metadata"]:
+            input_data["metadata"]["component"] = dict()
         if args.app_name is not None:
-            if 'name' in input_data['metadata']['component']:
-                logging.info(f"смена названия продукта {input_data['metadata']['component']['name']} -> {args.app_name}")
-                logging.info('-'*50)
-            input_data['metadata']['component']['name'] = args.app_name
-        elif 'name' not in input_data['metadata']['component']:
-            input_data['metadata']['component']['name'] = DEFAULT_VALUE
+            if "name" in input_data["metadata"]["component"]:
+                logging.info(
+                    f"смена названия продукта {input_data['metadata']['component']['name']} -> {args.app_name}"
+                )
+                logging.info("-" * 50)
+            input_data["metadata"]["component"]["name"] = args.app_name
+        elif "name" not in input_data["metadata"]["component"]:
+            input_data["metadata"]["component"]["name"] = DEFAULT_VALUE
 
     if args.app_version is not None or args.fix_all:
-        if 'metadata' not in input_data:
-            input_data['metadata'] = dict()
-        if 'component' not in input_data['metadata']:
-            input_data['metadata']['component'] = dict()
+        if "metadata" not in input_data:
+            input_data["metadata"] = dict()
+        if "component" not in input_data["metadata"]:
+            input_data["metadata"]["component"] = dict()
         if args.app_version is not None:
-            if 'version' in input_data['metadata']['component']:
-                logging.info(f"смена версии продукта {input_data['metadata']['component']['version']} -> {args.app_version}")
-                logging.info('-'*50)
-            input_data['metadata']['component']['version'] = args.app_version
-        elif 'version' not in input_data['metadata']['component']:
-            input_data['metadata']['component']['version'] = DEFAULT_VALUE
+            if "version" in input_data["metadata"]["component"]:
+                logging.info(
+                    f"смена версии продукта {input_data['metadata']['component']['version']} -> {args.app_version}"
+                )
+                logging.info("-" * 50)
+            input_data["metadata"]["component"]["version"] = args.app_version
+        elif "version" not in input_data["metadata"]["component"]:
+            input_data["metadata"]["component"]["version"] = DEFAULT_VALUE
 
     if args.manufacturer is not None or args.fix_all:
-        if 'metadata' not in input_data:
-            input_data['metadata'] = dict()
-        if 'component' not in input_data['metadata']:
-            input_data['metadata']['component'] = dict()
-        if 'manufacturer' not in input_data['metadata']['component']:
-            input_data['metadata']['component']['manufacturer'] = dict()
+        if "metadata" not in input_data:
+            input_data["metadata"] = dict()
+        if "component" not in input_data["metadata"]:
+            input_data["metadata"]["component"] = dict()
+        if "manufacturer" not in input_data["metadata"]["component"]:
+            input_data["metadata"]["component"]["manufacturer"] = dict()
         if args.manufacturer is not None:
-            if 'name' in input_data['metadata']['component']['manufacturer']:
-                logging.info(f"смена названия организации {input_data['metadata']['component']['manufacturer']['name']} -> {args.manufacturer}")
-                logging.info('-'*50)
-            input_data['metadata']['component']['manufacturer']['name'] = args.manufacturer
-        elif 'name' not in input_data['metadata']['component']['manufacturer']:
-            input_data['metadata']['component']['manufacturer']['name'] = DEFAULT_VALUE
+            if "name" in input_data["metadata"]["component"]["manufacturer"]:
+                logging.info(
+                    f"смена названия организации {input_data['metadata']['component']['manufacturer']['name']} -> {args.manufacturer}"
+                )
+                logging.info("-" * 50)
+            input_data["metadata"]["component"]["manufacturer"]["name"] = args.manufacturer
+        elif "name" not in input_data["metadata"]["component"]["manufacturer"]:
+            input_data["metadata"]["component"]["manufacturer"]["name"] = DEFAULT_VALUE
 
     if args.ref or args.fix_all:
         purl_file = _resolve_purl_to_vcs(args.purl_to_vcs)
         logging.info(f"используется файл purl→vcs: {purl_file}")
         ref_finder = RefFinder(purl_file)
         flat_components = []
-        stack = input_data.get('components', []).copy()
+        stack = input_data.get("components", []).copy()
         while stack:
             component = stack.pop(0)
-            if 'components' in component:
-                stack += component['components']
+            if "components" in component:
+                stack += component["components"]
             flat_components.append(component)
         total = len(flat_components)
 
@@ -633,104 +649,118 @@ def run(args, progress_callback=None):
         _progress_completed = [0]
 
         def _process_component(component):
-            result = {'component': component, 'vcs_url': None, 'website_fix': None}
-            if 'purl' in component and 'externalReferences' not in component:
-                result['vcs_url'] = ref_finder.process_purl(component['purl'])
-            website_ref = get_website(component.get('externalReferences', []))
-            if website_ref and ref_finder.is_repo(website_ref['url']):
-                result['website_fix'] = website_ref
+            result = {"component": component, "vcs_url": None, "website_fix": None}
+            if "purl" in component and "externalReferences" not in component:
+                result["vcs_url"] = ref_finder.process_purl(component["purl"])
+            website_ref = get_website(component.get("externalReferences", []))
+            if website_ref and ref_finder.is_repo(website_ref["url"]):
+                result["website_fix"] = website_ref
             if progress_callback:
                 with _progress_lock:
                     _progress_completed[0] += 1
                     idx = _progress_completed[0]
-                name = component.get('name', component.get('purl', '?'))
+                name = component.get("name", component.get("purl", "?"))
                 progress_callback(idx, total, name)
             return result
 
         max_workers = min(8, total) if total > 0 else 1
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             for result in executor.map(_process_component, flat_components):
-                component = result['component']
-                if result['vcs_url']:
-                    component['externalReferences'] = [{'type': 'vcs', 'url': result['vcs_url']}]
-                if result['website_fix']:
-                    result['website_fix']['type'] = 'vcs'
+                component = result["component"]
+                if result["vcs_url"]:
+                    component["externalReferences"] = [{"type": "vcs", "url": result["vcs_url"]}]
+                if result["website_fix"]:
+                    result["website_fix"]["type"] = "vcs"
                     logging.info(f"смена типа с 'website' на 'vcs' для {result['website_fix']['url']}")
-                    logging.info('-' * 50)
+                    logging.info("-" * 50)
         ref_finder.dump_repos()
 
     if args.update:
         with open(args.update) as f:
             old_data = json.load(f)
-        stack = old_data.get('components', [])
+        stack = old_data.get("components", [])
         old_data_dict = dict()
         while stack:
             component = stack.pop(0)
-            old_data_dict[(component['name'], component['version'])] = dict()
-            old_data_dict[(component['name'], component['version'])]['properties'] = component.get('properties', [])
-            old_data_dict[(component['name'], component['version'])]['purl'] = component.get('purl', '')
-            old_data_dict[(component['name'], component['version'])]['externalReferences'] = component.get('externalReferences', [])
-            if 'components' in component:
-                stack += component['components']
+            old_data_dict[(component["name"], component["version"])] = dict()
+            old_data_dict[(component["name"], component["version"])]["properties"] = component.get("properties", [])
+            old_data_dict[(component["name"], component["version"])]["purl"] = component.get("purl", "")
+            old_data_dict[(component["name"], component["version"])]["externalReferences"] = component.get(
+                "externalReferences", []
+            )
+            if "components" in component:
+                stack += component["components"]
 
-        stack = input_data.get('components', []).copy()
+        stack = input_data.get("components", []).copy()
         while stack:
             component = stack.pop(0)
-            key = (component['name'], component['version'])
+            key = (component["name"], component["version"])
             if key in old_data_dict:
                 if any(old_data_dict[key].values()):
                     logging.info(f"для компонента {component} присвоение полю")
-                if old_data_dict[key]['properties']:
-                    logging.info(f"\"properties\" значения:\n{old_data_dict[key]['properties']}")
-                    component['properties'] = old_data_dict[key]['properties']
-                if old_data_dict[key]['purl']:
-                    logging.info(f"\"purl\" значения:\n{old_data_dict[key]['purl']}")
-                    component['purl'] = old_data_dict[key]['purl']
-                if old_data_dict[key]['externalReferences']:
-                    logging.info(f"\"externalReferences\" значения:\n{old_data_dict[key]['externalReferences']}")
-                    component['externalReferences'] = old_data_dict[key]['externalReferences']
+                if old_data_dict[key]["properties"]:
+                    logging.info(f'"properties" значения:\n{old_data_dict[key]["properties"]}')
+                    component["properties"] = old_data_dict[key]["properties"]
+                if old_data_dict[key]["purl"]:
+                    logging.info(f'"purl" значения:\n{old_data_dict[key]["purl"]}')
+                    component["purl"] = old_data_dict[key]["purl"]
+                if old_data_dict[key]["externalReferences"]:
+                    logging.info(f'"externalReferences" значения:\n{old_data_dict[key]["externalReferences"]}')
+                    component["externalReferences"] = old_data_dict[key]["externalReferences"]
                 if any(old_data_dict[key].values()):
-                    logging.info('-'*50)
-            if 'components' in component:
-                stack += component['components']
+                    logging.info("-" * 50)
+            if "components" in component:
+                stack += component["components"]
 
-        if 'metadata' in old_data and 'component' in old_data['metadata'] and 'name' in old_data['metadata']['component']:
-            old_name = old_data['metadata']['component']['name']
-            if 'metadata' not in input_data:
-                input_data['metadata'] = dict()
-            if 'component' not in input_data['metadata']:
-                input_data['metadata']['component'] = dict()
-            if 'name' not in input_data['metadata']['component']:
+        if (
+            "metadata" in old_data
+            and "component" in old_data["metadata"]
+            and "name" in old_data["metadata"]["component"]
+        ):
+            old_name = old_data["metadata"]["component"]["name"]
+            if "metadata" not in input_data:
+                input_data["metadata"] = dict()
+            if "component" not in input_data["metadata"]:
+                input_data["metadata"]["component"] = dict()
+            if "name" not in input_data["metadata"]["component"]:
                 logging.info(f"перенос названия продукта: {old_name}")
-                logging.info('-'*50)
-                input_data['metadata']['component']['name'] = old_name
-        if 'metadata' in old_data and 'component' in old_data['metadata'] and 'version' in old_data['metadata']['component']:
-            old_version = old_data['metadata']['component']['version']
-            if 'metadata' not in input_data:
-                input_data['metadata'] = dict()
-            if 'component' not in input_data['metadata']:
-                input_data['metadata']['component'] = dict()
-            if 'version' not in input_data['metadata']['component']:
+                logging.info("-" * 50)
+                input_data["metadata"]["component"]["name"] = old_name
+        if (
+            "metadata" in old_data
+            and "component" in old_data["metadata"]
+            and "version" in old_data["metadata"]["component"]
+        ):
+            old_version = old_data["metadata"]["component"]["version"]
+            if "metadata" not in input_data:
+                input_data["metadata"] = dict()
+            if "component" not in input_data["metadata"]:
+                input_data["metadata"]["component"] = dict()
+            if "version" not in input_data["metadata"]["component"]:
                 logging.info(f"перенос версии продукта: {old_version}")
-                logging.info('-'*50)
-                input_data['metadata']['component']['version'] = old_version
-        if 'metadata' in old_data and 'component' in old_data['metadata'] and 'manufacturer' in old_data['metadata']['component'] and \
-            'name' in old_data['metadata']['component']['manufacturer']:
-            old_manufacturer = old_data['metadata']['component']['manufacturer']['name']
-            if 'metadata' not in input_data:
-                input_data['metadata'] = dict()
-            if 'component' not in input_data['metadata']:
-                input_data['metadata']['component'] = dict()
-            if 'manufacturer' not in input_data['metadata']['component']:
-                input_data['metadata']['component']['manufacturer'] = dict()
-            if 'name' not in input_data['metadata']['component']['manufacturer']:
+                logging.info("-" * 50)
+                input_data["metadata"]["component"]["version"] = old_version
+        if (
+            "metadata" in old_data
+            and "component" in old_data["metadata"]
+            and "manufacturer" in old_data["metadata"]["component"]
+            and "name" in old_data["metadata"]["component"]["manufacturer"]
+        ):
+            old_manufacturer = old_data["metadata"]["component"]["manufacturer"]["name"]
+            if "metadata" not in input_data:
+                input_data["metadata"] = dict()
+            if "component" not in input_data["metadata"]:
+                input_data["metadata"]["component"] = dict()
+            if "manufacturer" not in input_data["metadata"]["component"]:
+                input_data["metadata"]["component"]["manufacturer"] = dict()
+            if "name" not in input_data["metadata"]["component"]["manufacturer"]:
                 logging.info(f"перенос названия организации: {old_manufacturer}")
-                logging.info('-'*50)
-                input_data['metadata']['component']['manufacturer']['name'] = old_manufacturer
+                logging.info("-" * 50)
+                input_data["metadata"]["component"]["manufacturer"]["name"] = old_manufacturer
 
-    if 'metadata' in input_data:
-        input_data['metadata']['timestamp'] = datetime.datetime.now(datetime.UTC).isoformat()
-    if 'version' in input_data:
-        input_data['version'] += 1
-    with open(args.output, 'w', encoding=encoding) as f:
+    if "metadata" in input_data:
+        input_data["metadata"]["timestamp"] = datetime.datetime.now(datetime.UTC).isoformat()
+    if "version" in input_data:
+        input_data["version"] += 1
+    with open(args.output, "w", encoding=encoding) as f:
         json.dump(input_data, f, indent=2, ensure_ascii=False)

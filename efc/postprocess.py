@@ -33,37 +33,71 @@ from efc.config import (
     load_config,
 )
 
-_PURL_TO_VCS_FILENAME = '.purl_to_vcs.json'
-_PURL_TO_GOST_FILENAME = '.purl_to_gost.json'
-_PURL_EXCLUDE_FILENAME = '.purl_exclude.json'
+_PURL_TO_VCS_FILENAME = ".purl_to_vcs.json"
+_PURL_TO_GOST_FILENAME = ".purl_to_gost.json"
+_PURL_EXCLUDE_FILENAME = ".purl_exclude.json"
 
 # ── Разрешённые поля по уровням (согласно schema.json с additionalProperties: false) ──
 
 ROOT_ALLOWED = {
-    "$schema", "bomFormat", "specVersion", "serialNumber", "version",
-    "metadata", "components", "services", "externalReferences",
-    "dependencies", "compositions", "vulnerabilities", "annotations",
-    "formulation", "declarations", "definitions", "properties",
+    "$schema",
+    "bomFormat",
+    "specVersion",
+    "serialNumber",
+    "version",
+    "metadata",
+    "components",
+    "services",
+    "externalReferences",
+    "dependencies",
+    "compositions",
+    "vulnerabilities",
+    "annotations",
+    "formulation",
+    "declarations",
+    "definitions",
+    "properties",
 }
 
 METADATA_ALLOWED = {
-    "timestamp", "lifecycles", "tools", "manufacturer", "authors",
-    "component", "manufacture", "supplier", "licenses", "properties",
+    "timestamp",
+    "lifecycles",
+    "tools",
+    "manufacturer",
+    "authors",
+    "component",
+    "manufacture",
+    "supplier",
+    "licenses",
+    "properties",
 }
 
 # Поля, которые cdxgen генерирует, но валидатор не требует и которые можно
 # безопасно убрать для минимизации SBOM.  Если поле допускается схемой,
 # но не используется валидатором — оставляем по умолчанию (не ломаем схему).
 COMPONENT_STRIP_FIELDS = {
-    "description", "scope", "evidence", "pedigree",
-    "releaseNotes", "modelCard", "data", "cryptoProperties",
-    "tags", "omniborId", "swhid",
+    "description",
+    "scope",
+    "evidence",
+    "pedigree",
+    "releaseNotes",
+    "modelCard",
+    "data",
+    "cryptoProperties",
+    "tags",
+    "omniborId",
+    "swhid",
 }
 
 # Поля корневого уровня, которые можно убрать для минимизации
 ROOT_STRIP_FIELDS = {
-    "services", "compositions", "vulnerabilities", "annotations",
-    "formulation", "declarations", "definitions",
+    "services",
+    "compositions",
+    "vulnerabilities",
+    "annotations",
+    "formulation",
+    "declarations",
+    "definitions",
 }
 
 # Префикс свойств, которые сохраняются в properties (остальные удаляются)
@@ -107,7 +141,9 @@ def has_required_ext_ref(refs):
     return False
 
 
-def strip_component(comp, strip_fields, gost_default, purl_to_vcs=None, provided_by=None, purl_to_gost=None, config=None):
+def strip_component(
+    comp, strip_fields, gost_default, purl_to_vcs=None, provided_by=None, purl_to_gost=None, config=None
+):
     """Обработать один компонент: убрать лишнее, добавить обязательное."""
     # Если есть конфиг — применить pedigree/manufacturer ДО strip (чтобы pedigree не удалился)
     purl = comp.get("purl", "")
@@ -137,8 +173,14 @@ def strip_component(comp, strip_fields, gost_default, purl_to_vcs=None, provided
     # ГОСТ-свойства: если есть маппинг purl→GOST, использовать его
     # Формат маппинга: {"GOST:attack_surface": {"purl": "yes/indirect"}, ...}
 
-    gost_as = purl_to_gost.get("GOST:attack_surface", {}).get(purl, gost_default) if purl and purl_to_gost else gost_default
-    gost_sf = purl_to_gost.get("GOST:security_function", {}).get(purl, gost_default) if purl and purl_to_gost else gost_default
+    gost_as = (
+        purl_to_gost.get("GOST:attack_surface", {}).get(purl, gost_default) if purl and purl_to_gost else gost_default
+    )
+    gost_sf = (
+        purl_to_gost.get("GOST:security_function", {}).get(purl, gost_default)
+        if purl and purl_to_gost
+        else gost_default
+    )
     normalize_gost_prop(comp["properties"], "GOST:attack_surface", gost_as)
     normalize_gost_prop(comp["properties"], "GOST:security_function", gost_sf)
 
@@ -158,8 +200,7 @@ def strip_component(comp, strip_fields, gost_default, purl_to_vcs=None, provided
             refs = comp.get("externalReferences")
             if isinstance(refs, list):
                 comp["externalReferences"] = [
-                    r for r in refs
-                    if not (r.get("type") == "vcs" and r.get("url") in ("TODO", "", None))
+                    r for r in refs if not (r.get("type") == "vcs" and r.get("url") in ("TODO", "", None))
                 ]
                 if not comp["externalReferences"]:
                     del comp["externalReferences"]
@@ -348,7 +389,7 @@ def _resolve_config_path(cli_path=None):
     """Определить путь к файлу конфига."""
     if cli_path:
         return Path(cli_path)
-    cwd_file = Path.cwd() / '.sbom-config.json'
+    cwd_file = Path.cwd() / ".sbom-config.json"
     if cwd_file.is_file():
         return cwd_file
     return None
@@ -381,7 +422,7 @@ def _purl_without_version(purl):
         start = match.start()
         if start == 0 or base[start - 1] == "/":
             continue
-        if _VERSION_TAIL.match(unquote(base[match.end():])):
+        if _VERSION_TAIL.match(unquote(base[match.end() :])):
             return base[:start]
     return base
 
@@ -520,15 +561,9 @@ def exclude_components(bom, exclude_purls):
         refs_to_remove = dev_reachable - prod_reachable
 
         # Очистить секцию dependencies
-        bom["dependencies"] = [
-            d for d in dependencies
-            if d.get("ref", "") not in refs_to_remove
-        ]
+        bom["dependencies"] = [d for d in dependencies if d.get("ref", "") not in refs_to_remove]
         for entry in bom["dependencies"]:
-            entry["dependsOn"] = [
-                d for d in entry.get("dependsOn", [])
-                if d not in refs_to_remove
-            ]
+            entry["dependsOn"] = [d for d in entry.get("dependsOn", []) if d not in refs_to_remove]
 
     # Удалить компоненты (рекурсивно, включая вложенные)
     bom["components"] = _filter_components_recursive(components, refs_to_remove)
@@ -542,11 +577,13 @@ def init_purl_exclude(bom, output_path):
     Создаёт файл со всеми purl (без версий) из BOM для удобного выбора
     компонентов на исключение.
     """
-    purls = sorted({
-        _purl_without_version(comp.get("purl", ""))
-        for comp in _iter_components_flat(bom.get("components", []))
-        if comp.get("purl")
-    })
+    purls = sorted(
+        {
+            _purl_without_version(comp.get("purl", ""))
+            for comp in _iter_components_flat(bom.get("components", []))
+            if comp.get("purl")
+        }
+    )
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(purls, f, indent=2, ensure_ascii=False)
     print(f"Шаблон записан: {output_path} ({len(purls)} purl)")
@@ -578,14 +615,9 @@ def _remove_manifest_components(bom):
         bom["components"] = kept
         deps = bom.get("dependencies", [])
         if deps:
-            bom["dependencies"] = [
-                d for d in deps if d.get("ref", "") not in manifest_refs
-            ]
+            bom["dependencies"] = [d for d in deps if d.get("ref", "") not in manifest_refs]
             for entry in bom["dependencies"]:
-                entry["dependsOn"] = [
-                    d for d in entry.get("dependsOn", [])
-                    if d not in manifest_refs
-                ]
+                entry["dependsOn"] = [d for d in entry.get("dependsOn", []) if d not in manifest_refs]
 
     return n_removed
 
@@ -616,19 +648,16 @@ def _exclude_direct(bom, exclude_purls):
 
     deps = bom.get("dependencies", [])
     if deps:
-        bom["dependencies"] = [
-            d for d in deps if d.get("ref", "") not in refs_to_remove
-        ]
+        bom["dependencies"] = [d for d in deps if d.get("ref", "") not in refs_to_remove]
         for entry in bom["dependencies"]:
-            entry["dependsOn"] = [
-                d for d in entry.get("dependsOn", [])
-                if d not in refs_to_remove
-            ]
+            entry["dependsOn"] = [d for d in entry.get("dependsOn", []) if d not in refs_to_remove]
 
     return len(refs_to_remove)
 
 
-def process_bom(bom, args, purl_to_vcs=None, purl_to_gost=None, purl_exclude=None, config=None, purl_exclude_direct=None):
+def process_bom(
+    bom, args, purl_to_vcs=None, purl_to_gost=None, purl_exclude=None, config=None, purl_exclude_direct=None
+):
     """Основная обработка BOM."""
     ensure_root(bom)
 
@@ -653,7 +682,7 @@ def process_bom(bom, args, purl_to_vcs=None, purl_to_gost=None, purl_exclude=Non
 
     # Обработка компонентов
     gost_default = args.gost_default
-    provided_by = getattr(args, 'provided_by', None)
+    provided_by = getattr(args, "provided_by", None)
     strip_fields = COMPONENT_STRIP_FIELDS if not args.keep_all_fields else set()
 
     for comp in bom.get("components", []):
@@ -676,13 +705,13 @@ def run(args):
             bom = json.load(f)
 
     # --init-exclude: сгенерировать шаблон и выйти
-    if getattr(args, 'init_exclude', False):
-        out = getattr(args, 'purl_exclude', None) or _PURL_EXCLUDE_FILENAME
+    if getattr(args, "init_exclude", False):
+        out = getattr(args, "purl_exclude", None) or _PURL_EXCLUDE_FILENAME
         init_purl_exclude(bom, out)
         return
 
     # Попытка загрузить единый конфиг (.sbom-config.json)
-    config = load_config(getattr(args, 'config', None))
+    config = load_config(getattr(args, "config", None))
 
     purl_to_vcs = None
     purl_to_gost = None
@@ -698,22 +727,22 @@ def run(args):
         purl_exclude = cascade_list if cascade_list else None
         purl_exclude_direct = direct_list if direct_list else None
         n_vcs = sum(1 for v in purl_to_vcs.values() if v)
-        n_total = len(config.get('components', {}))
+        n_total = len(config.get("components", {}))
         print(f"Конфиг загружен: {n_total} компонентов, {n_vcs} с VCS")
     else:
         print("Конфиг .sbom-config.json не найден, используются отдельные файлы маппинга")
         # Старый режим: отдельные файлы
         purl_to_vcs = _load_purl_to_vcs(args.purl_to_vcs)
         purl_to_gost = _load_purl_to_gost(args.purl_to_gost)
-        purl_exclude = _load_purl_exclude(getattr(args, 'purl_exclude', None))
+        purl_exclude = _load_purl_exclude(getattr(args, "purl_exclude", None))
 
     config_path = None
     config_added = 0
     if config:
-        config_path = _resolve_config_path(getattr(args, 'config', None))
-        components_cfg = config.setdefault('components', {})
-        for comp in _iter_components_flat(bom.get('components', [])):
-            purl = comp.get('purl', '')
+        config_path = _resolve_config_path(getattr(args, "config", None))
+        components_cfg = config.setdefault("components", {})
+        for comp in _iter_components_flat(bom.get("components", [])):
+            purl = comp.get("purl", "")
             if not purl:
                 continue
             base = _purl_without_version(purl)
@@ -721,7 +750,7 @@ def run(args):
                 components_cfg[base] = {}
                 config_added += 1
         if config_added and config_path:
-            with open(config_path, 'w', encoding='utf-8') as f:
+            with open(config_path, "w", encoding="utf-8") as f:
                 json.dump(config, f, indent=2, ensure_ascii=False)
             purl_to_vcs = config_to_purl_to_vcs(config)
 

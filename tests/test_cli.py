@@ -56,6 +56,7 @@ class TestCheck:
         comp["properties"] = [
             {"name": "GOST:attack_surface", "value": "no"},
             {"name": "GOST:security_function", "value": "no"},
+            {"name": "GOST:source_langs", "value": "Python"},
         ]
         comp["externalReferences"] = [{"type": "vcs", "url": "https://github.com/psf/requests"}]
         path = tmp_path / "bom.json"
@@ -217,3 +218,41 @@ class TestScan:
         result = runner.invoke(app, ["scan", "--tool", "cdxgen", "--config", str(config_path)])
         assert result.exit_code == 0, result.output
         assert captured["tool"] == "cdxgen"
+
+
+class TestCheckExitCodes:
+    def _write(self, tmp_path, bom):
+        path = tmp_path / "bom.json"
+        path.write_text(json.dumps(bom, ensure_ascii=False), encoding="utf-8")
+        return str(path)
+
+    def _component(self, with_source_langs=True):
+        comp = make_component("requests", "2.32.5")
+        comp["properties"] = [
+            {"name": "GOST:attack_surface", "value": "no"},
+            {"name": "GOST:security_function", "value": "no"},
+        ]
+        if with_source_langs:
+            comp["properties"].append({"name": "GOST:source_langs", "value": "Python"})
+        comp["externalReferences"] = [{"type": "vcs", "url": "https://github.com/psf/requests"}]
+        return comp
+
+    def test_complete_listing_exits_zero(self, tmp_path):
+        path = self._write(tmp_path, make_bom([self._component()]))
+        result = runner.invoke(app, ["check", path])
+        assert result.exit_code == 0
+
+    def test_schema_error_exits_one(self, tmp_path):
+        bom = make_bom([self._component()])
+        del bom["specVersion"]
+        result = runner.invoke(app, ["check", self._write(tmp_path, bom)])
+        assert result.exit_code == 1
+
+    def test_incomplete_listing_exits_two(self, tmp_path):
+        path = self._write(tmp_path, make_bom([self._component(with_source_langs=False)]))
+        result = runner.invoke(app, ["check", path])
+        assert result.exit_code == 2
+
+    def test_bundled_example_is_ready(self):
+        result = runner.invoke(app, ["check", "examples/example-sbom.json"])
+        assert result.exit_code == 0, result.output

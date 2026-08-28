@@ -5,6 +5,7 @@
 import concurrent.futures
 import json
 import logging
+from collections import Counter
 from pathlib import Path
 
 import jsonschema
@@ -14,6 +15,76 @@ from requests import Session
 from .utils import check_repo, dump_cache, get_prop, is_archive_url, load_cache, opener, parse_repo_url
 
 _PKG_DIR = Path(__file__).parent.resolve()
+
+_PLACEHOLDER_URLS = {"TODO", "", "sbom-updater_generated_placeholder:", None}
+_REQUIRED_GOST_PROPS = ("GOST:attack_surface", "GOST:security_function")
+
+
+def _iter_components(components):
+    """Обойти компоненты вместе с вложенными."""
+    stack = list(components)
+    while stack:
+        comp = stack.pop(0)
+        stack += comp.get("components", [])
+        yield comp
+
+
+def _has_usable_vcs(comp):
+    refs = comp.get("externalReferences", [])
+    if not isinstance(refs, list):
+        return False
+    for ref in refs:
+        if isinstance(ref, dict) and ref.get("type") == "vcs" and ref.get("url") not in _PLACEHOLDER_URLS:
+            return True
+    return False
+
+
+def check_readiness(bom, limit=0):
+    """Проверить, что перечень заполнен и годится для сдачи.
+
+    Схема CycloneDX не требует ни ГОСТ-свойств, ни ссылки на исходный код, поэтому
+    формально корректный файл может оказаться непригодным. Возвращает число замечаний.
+    """
+    issues = []
+
+    meta = bom.get("metadata", {}).get("component", {})
+    for field in ("name", "version"):
+        if meta.get(field, "") in ("", "TODO"):
+            issues.append((f"metadata.component.{field} не заполнено", f"metadata.component.{field}: TODO"))
+    if meta.get("manufacturer", {}).get("name", "") in ("", "TODO"):
+        issues.append(
+            ("metadata.component.manufacturer.name не заполнено", "metadata.component.manufacturer.name: TODO")
+        )
+
+    for comp in _iter_components(bom.get("components", [])):
+        title = f"{comp.get('name', '?')} {comp.get('version', '')}".strip()
+        props = comp.get("properties", []) or []
+        for prop in _REQUIRED_GOST_PROPS:
+            if not get_prop(props, prop):
+                issues.append((f"отсутствует {prop}", f"{title}: отсутствует {prop}"))
+        if not get_prop(props, "GOST:source_langs"):
+            issues.append(("отсутствует GOST:source_langs", f"{title}: отсутствует GOST:source_langs"))
+        if not _has_usable_vcs(comp) and not get_prop(props, "GOST:provided_by"):
+            issues.append(
+                (
+                    "нет ссылки на репозиторий и не указан GOST:provided_by",
+                    f"{title}: нет ссылки на репозиторий и не указан GOST:provided_by",
+                )
+            )
+
+    for number, (_kind, message) in enumerate(issues, 1):
+        if limit and number > limit:
+            break
+        print(f"WARNING: {message}")
+        print("-" * 50)
+
+    if issues:
+        counts = Counter(kind for kind, _ in issues)
+        print("не заполнено для сдачи:")
+        for kind, number in counts.most_common():
+            print(f"  {kind}: {number}")
+
+    return len(issues)
 
 
 def run(args):
@@ -125,16 +196,16 @@ def run(args):
                         break
                     continue
                 break
+        not_repos = 0
+        not_arch_url = 0
         if args.check_vcs or args.check_vcs_leaf_only or args.check_source_distribution:
             import os
 
             os.environ["GIT_TERMINAL_PROMPT"] = "0"
             stack = parsed_file.get("components", []).copy()
-            not_repos = 0
             repo_dict = load_cache("vcs")
             src_list = set()
             src_results = load_cache("source-distribution")
-            not_arch_url = 0
             refs_to_check = dict()
             while stack:
                 component = stack.pop(0)
@@ -193,10 +264,17 @@ def run(args):
                             print("-" * 50)
             dump_cache("vcs", {k: v for k, v in repo_dict.items() if v})
             dump_cache("source-distribution", {k: v for k, v in src_results.items() if v})
-            if not_repos == 0 and count == 0 and not_arch_url == 0:
-                print("файл корректный")
-        elif count == 0:
-            print("файл корректный")
+
+        not_ready = check_readiness(parsed_file, limit)
+
+        if count or not_repos or not_arch_url:
+            return 1
+        if not_ready:
+            print(f"файл соответствует схеме, но перечень не готов к сдаче: замечаний {not_ready}")
+            return 2
+        print("файл корректный")
+        return 0
     except jsonschema.exceptions.SchemaError as se:
         print("ошибка в файле-спецификации:")
         print(se)
+        return 1

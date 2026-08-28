@@ -26,6 +26,13 @@ def args_for(path, **overrides):
     return SimpleNamespace(**base)
 
 
+def complete_component(name="requests", version="2.32.5"):
+    """Компонент, полностью готовый к сдаче: ГОСТ-свойства, языки и ссылка на репозиторий."""
+    comp = gost_component(name, version)
+    comp["properties"].append({"name": "GOST:source_langs", "value": "Python"})
+    return comp
+
+
 def gost_component(name, version="1.0.0", **extra):
     """Компонент, проходящий схему: с GOST-свойствами и VCS-ссылкой."""
     comp = make_component(name, version, **extra)
@@ -42,7 +49,7 @@ def gost_component(name, version="1.0.0", **extra):
 
 class TestSchemaValidation:
     def test_valid_bom_reported_as_correct(self, write_json, capsys):
-        path = write_json("bom.json", make_bom([gost_component("requests", "2.32.5")]))
+        path = write_json("bom.json", make_bom([complete_component()]))
         checker.run(args_for(path))
         assert "файл корректный" in capsys.readouterr().out
 
@@ -89,14 +96,14 @@ class TestVcsCheck:
         monkeypatch.setattr(checker, "dump_cache", lambda kind, data: None)
         monkeypatch.setattr(checker, "check_repo", lambda url: (True, ""))
 
-        path = write_json("bom.json", make_bom([gost_component("requests", "2.32.5")]))
+        path = write_json("bom.json", make_bom([complete_component()]))
         checker.run(args_for(path, check_vcs=True))
         assert "файл корректный" in capsys.readouterr().out
 
 
 class TestSourceDistributionCheck:
     def _bom_with_source_dist(self):
-        comp = gost_component("requests", "2.32.5")
+        comp = complete_component()
         comp["externalReferences"].append(
             {"type": "source-distribution", "url": "https://example.org/requests-2.32.5.tar.gz"}
         )
@@ -154,3 +161,100 @@ class TestContainerFormat:
         path = write_json("bom.json", self._container_bom("yes", "yes"))
         checker.run(args_for(path, format="container"))
         assert "поверхности атаки" not in capsys.readouterr().out
+
+
+class TestExitCodes:
+    def test_valid_and_complete_returns_zero(self, write_json):
+        assert checker.run(args_for(write_json("bom.json", make_bom([complete_component()])))) == 0
+
+    def test_schema_error_returns_one(self, write_json):
+        bom = make_bom([gost_component("requests", "2.32.5")])
+        del bom["specVersion"]
+        assert checker.run(args_for(write_json("bom.json", bom))) == 1
+
+    def test_incomplete_listing_returns_two(self, write_json):
+        bom = make_bom([gost_component("requests", "2.32.5")])
+        assert checker.run(args_for(write_json("bom.json", bom))) == 2
+
+    def test_unreachable_repository_returns_one(self, write_json, monkeypatch):
+        monkeypatch.setattr(checker, "load_cache", lambda kind: {})
+        monkeypatch.setattr(checker, "dump_cache", lambda kind, data: None)
+        monkeypatch.setattr(checker, "check_repo", lambda url: (False, "не репозиторий"))
+        bom = make_bom([complete_component()])
+        assert checker.run(args_for(write_json("bom.json", bom), check_vcs=True)) == 1
+
+
+class TestReadiness:
+    def _run(self, write_json, capsys, bom):
+        checker.run(args_for(write_json("bom.json", bom)))
+        return capsys.readouterr().out
+
+    def test_todo_in_metadata_reported(self, write_json, capsys):
+        bom = make_bom([complete_component()])
+        bom["metadata"]["component"]["name"] = "TODO"
+        out = self._run(write_json, capsys, bom)
+        assert "TODO" in out
+        assert "metadata.component.name" in out
+
+    def test_todo_manufacturer_reported(self, write_json, capsys):
+        bom = make_bom([complete_component()])
+        bom["metadata"]["component"]["manufacturer"]["name"] = "TODO"
+        out = self._run(write_json, capsys, bom)
+        assert "manufacturer" in out
+
+    def test_missing_gost_property_reported(self, write_json, capsys):
+        comp = complete_component()
+        comp["properties"] = [p for p in comp["properties"] if p["name"] != "GOST:attack_surface"]
+        out = self._run(write_json, capsys, make_bom([comp]))
+        assert "GOST:attack_surface" in out
+        assert "requests" in out
+
+    def test_missing_source_langs_reported(self, write_json, capsys):
+        out = self._run(write_json, capsys, make_bom([gost_component("requests", "2.32.5")]))
+        assert "GOST:source_langs" in out
+
+    def test_component_without_vcs_and_provided_by_reported(self, write_json, capsys):
+        comp = complete_component()
+        del comp["externalReferences"]
+        out = self._run(write_json, capsys, make_bom([comp]))
+        assert "requests" in out
+        assert "GOST:provided_by" in out
+
+    def test_provided_by_replaces_vcs_requirement(self, write_json, capsys):
+        comp = complete_component()
+        del comp["externalReferences"]
+        comp["properties"].append({"name": "GOST:provided_by", "value": "ООО Поставщик"})
+        out = self._run(write_json, capsys, make_bom([comp]))
+        assert "файл корректный" in out
+
+    def test_placeholder_vcs_counts_as_missing(self, write_json, capsys):
+        comp = complete_component()
+        comp["externalReferences"] = [{"type": "vcs", "url": "TODO"}]
+        out = self._run(write_json, capsys, make_bom([comp]))
+        assert "requests" in out
+
+    def test_complete_listing_reports_no_warnings(self, write_json, capsys):
+        out = self._run(write_json, capsys, make_bom([complete_component()]))
+        assert "файл корректный" in out
+        assert "не заполнено" not in out
+
+
+class TestReadinessSummary:
+    def test_summary_groups_issues_by_kind(self, write_json, capsys):
+        components = []
+        for i in range(3):
+            comp = gost_component(f"lib{i}", "1.0")
+            components.append(comp)
+        bom = make_bom(components)
+        bom["metadata"]["component"]["version"] = "TODO"
+
+        checker.run(args_for(write_json("bom.json", bom), errors=2))
+        out = capsys.readouterr().out
+
+        assert "отсутствует GOST:source_langs: 3" in out
+        assert "metadata.component.version" in out
+
+    def test_summary_absent_when_listing_is_ready(self, write_json, capsys):
+        checker.run(args_for(write_json("bom.json", make_bom([complete_component()]))))
+        out = capsys.readouterr().out
+        assert "GOST:source_langs" not in out

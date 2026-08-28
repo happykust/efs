@@ -71,7 +71,7 @@ def cmd_check(
         format=format_,
         verbose=state["verbose"],
     )
-    run(args)
+    raise typer.Exit(code=run(args) or 0)
 
 
 # ── update ─────────────────────────────────────────────────────────────────────

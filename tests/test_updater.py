@@ -3,11 +3,16 @@
 
 """Тесты поиска VCS-ссылок. HTTP-запросы перехватываются responses, сеть не используется."""
 
+import json
+from types import SimpleNamespace
+
 import pytest
 import responses
 
 from efc import updater
 from efc.updater import RefFinder
+
+from .conftest import make_bom, make_component
 
 
 @pytest.fixture
@@ -183,3 +188,77 @@ class TestIsRepo:
         assert finder.is_repo("https://example.org/x") is False
         finder.is_repo("https://example.org/x")
         assert len(calls) == 1
+
+
+class TestRun:
+    """Проверка команды `efc update` без обращения к сети (--ref не используется)."""
+
+    def _args(self, tmp_path, input_path, **overrides):
+        base = {
+            "input": str(input_path),
+            "output": str(tmp_path / "out.json"),
+            "props": False,
+            "app_name": None,
+            "app_version": None,
+            "manufacturer": None,
+            "ref": False,
+            "purl_to_vcs": None,
+            "gost": False,
+            "purl_to_gost": None,
+            "init_gost_map": False,
+            "init_purl_map": False,
+            "extra_input": [],
+            "fix_all": False,
+            "update": None,
+            "verbose": False,
+        }
+        base.update(overrides)
+        return SimpleNamespace(**base)
+
+    def _write_bom(self, tmp_path, components):
+        path = tmp_path / "bom.json"
+        path.write_text(json.dumps(make_bom(components), ensure_ascii=False), encoding="utf-8")
+        return path
+
+    def test_props_adds_gost_properties(self, tmp_path):
+        path = self._write_bom(tmp_path, [make_component("requests", "2.32.5")])
+        updater.run(self._args(tmp_path, path, props=True))
+
+        data = json.loads((tmp_path / "out.json").read_text(encoding="utf-8"))
+        props = {p["name"]: p["value"] for p in data["components"][0]["properties"]}
+        assert props["GOST:attack_surface"] == "yes"
+        assert props["GOST:security_function"] == "yes"
+
+    def test_metadata_overridden(self, tmp_path):
+        path = self._write_bom(tmp_path, [make_component("requests", "2.32.5")])
+        updater.run(self._args(tmp_path, path, app_name="Продукт", app_version="9.9", manufacturer="ООО Изготовитель"))
+
+        mc = json.loads((tmp_path / "out.json").read_text(encoding="utf-8"))["metadata"]["component"]
+        assert mc["name"] == "Продукт"
+        assert mc["version"] == "9.9"
+        assert mc["manufacturer"]["name"] == "ООО Изготовитель"
+
+    def test_gost_mapping_applied(self, tmp_path):
+        mapping = tmp_path / "gost.json"
+        mapping.write_text(
+            json.dumps({"GOST:attack_surface": {"pkg:pypi/requests@2.32.5": "indirect"}}), encoding="utf-8"
+        )
+        path = self._write_bom(tmp_path, [make_component("requests", "2.32.5")])
+        updater.run(self._args(tmp_path, path, gost=True, purl_to_gost=str(mapping)))
+
+        data = json.loads((tmp_path / "out.json").read_text(encoding="utf-8"))
+        props = {p["name"]: p["value"] for p in data["components"][0]["properties"]}
+        assert props["GOST:attack_surface"] == "indirect"
+
+    def test_missing_output_exits(self, tmp_path):
+        path = self._write_bom(tmp_path, [make_component("requests", "2.32.5")])
+        with pytest.raises(SystemExit):
+            updater.run(self._args(tmp_path, path, output=None))
+
+    def test_init_purl_map_creates_template(self, tmp_path, monkeypatch):
+        path = self._write_bom(tmp_path, [make_component("requests", "2.32.5")])
+        monkeypatch.chdir(tmp_path)
+        updater.run(self._args(tmp_path, path, init_purl_map=True, output=None))
+
+        mapping = json.loads((tmp_path / ".purl_to_vcs.json").read_text(encoding="utf-8"))
+        assert mapping == {"pkg:pypi/requests@2.32.5": ""}

@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2024 Ekaterina Shastun, ISPRAS
+# SPDX-FileCopyrightText: 2026 Kirill Nikolaevskiy
 # SPDX-License-Identifier: Apache-2.0
 
-import argparse
 import concurrent.futures
 import json
 import jsonschema
@@ -10,20 +10,9 @@ from pathlib import Path
 import re
 from referencing import Registry, Resource
 
-from .sbom_utils import check_repo, opener, parse_repo_url, load_cache, dump_cache, is_archive_url, get_prop
+from .utils import check_repo, opener, parse_repo_url, load_cache, dump_cache, is_archive_url, get_prop
 
 _PKG_DIR = Path(__file__).parent.resolve()
-
-
-def configure_parser(parser):
-    parser.add_argument('filename', help='входной файл в формате CycloneDX JSON для проверки')
-    parser.add_argument('-e', '--errors', type=int, default=10,
-                        help='максимальное число ошибок для вывода; по умолчанию 10; установите 0 для вывода всех ошибок')
-    parser.add_argument('--check-vcs', action='store_true', help='проверка url типа vcs на git/svn/hg/fossil-репозиторий (требуется доступ к Интернет и наличие пакетов git, subversion и mercurial)')
-    parser.add_argument('--check-vcs-leaf-only', action='store_true', help='то же, что и --check-vcs, но проверяются только url в листовых компонентах')
-    parser.add_argument('--check-source-distribution', action='store_true', help='проверка существования URL для типа source-distribution и проверка того, что по указанной URL находится архив')
-    parser.add_argument('--format', type=str, default='oss',
-                        help='--format=oss для проверки файла-перечня заимствованных программных компонентов с открытым исходным кодом; --format=container для проверки файла-перечня образов контейнеров; по умолчанию oss')
 
 
 def run(args):
@@ -194,15 +183,3 @@ def run(args):
     except jsonschema.exceptions.SchemaError as se:
         print('ошибка в файле-спецификации:')
         print(se)
-
-
-def main():
-    parser = argparse.ArgumentParser(description='проверка sbom-файлов')
-    parser.add_argument('-v', '--verbose', action='store_true', help='подробный вывод')
-    configure_parser(parser)
-    args = parser.parse_args()
-    run(args)
-
-
-if __name__ == '__main__':
-    main()

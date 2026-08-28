@@ -1,4 +1,5 @@
 # SPDX-FileCopyrightText: 2024 Ekaterina Shastun, ISPRAS
+# SPDX-FileCopyrightText: 2026 Kirill Nikolaevskiy
 # SPDX-License-Identifier: Apache-2.0
 
 from types import SimpleNamespace
@@ -7,8 +8,8 @@ from typing import Optional
 import typer
 
 app = typer.Typer(
-    name="sbom",
-    help="Утилита для проверки и обработки SBOM-файлов (CycloneDX JSON)",
+    name="efc",
+    help="efc — Easy FSTEC Certification: генерация, проверка и обогащение SBOM (CycloneDX + ГОСТ)",
     rich_markup_mode="rich",
     invoke_without_command=True,
 )
@@ -54,7 +55,7 @@ def cmd_check(
     check_source_distribution: bool = typer.Option(False, "--check-source-distribution", help="проверка существования URL для типа source-distribution"),
     format_: str = typer.Option("oss", "--format", help="oss | container; по умолчанию oss"),
 ):
-    from sbom_utils.checker import run
+    from efc.checker import run
 
     args = SimpleNamespace(
         filename=filename,
@@ -89,7 +90,7 @@ def cmd_update(
     fix_all: bool = typer.Option(False, "--fix-all", help="применить все опции"),
     update: Optional[str] = typer.Option(None, "--update", metavar="OLD_SBOM", help="предыдущая версия перечня"),
 ):
-    from sbom_utils.updater import run
+    from efc.updater import run
 
     args = SimpleNamespace(
         input=input_,
@@ -122,7 +123,7 @@ def cmd_merge(
     app_version: str = typer.Option(..., "--app-version", help="версия продукта"),
     manufacturer: str = typer.Option(..., "--manufacturer", help="организация-изготовитель"),
 ):
-    from sbom_utils.unifier import run
+    from efc.unifier import run
 
     if len(files) < 2:
         typer.echo("ошибка: необходимо указать хотя бы один входной файл и один выходной файл", err=True)
@@ -147,7 +148,7 @@ def cmd_export_csv(
     input_: str = typer.Argument(..., metavar="INPUT", help="входной файл CycloneDX JSON"),
     output: str = typer.Argument(..., help="выходной CSV файл"),
 ):
-    from sbom_utils.to_csv import run
+    from efc.to_csv import run
 
     args = SimpleNamespace(
         input=input_,
@@ -167,7 +168,7 @@ def cmd_export_odt(
     pa_fb_ontop: bool = typer.Option(False, "-t", "--pa-fb-ontop", help="помещение записей «ПА» и «ФБ» в топ таблицы"),
     format_: str = typer.Option("oss", "--format", help="oss | container; по умолчанию oss"),
 ):
-    from sbom_utils.to_odt import run
+    from efc.to_odt import run
 
     args = SimpleNamespace(
         input=input_,
@@ -200,7 +201,7 @@ def cmd_postprocess(
     pretty: bool = typer.Option(True, "--pretty/--no-pretty", help="форматировать JSON"),
     config: Optional[str] = typer.Option(None, "--config", help="путь к .sbom-config.json (по умолчанию ищется в текущей директории)"),
 ):
-    from sbom_utils.cdxgen_postprocess import run
+    from efc.postprocess import run
 
     if gost_default not in ("yes", "no", "indirect"):
         typer.echo("ошибка: --gost-default должен быть yes, no или indirect", err=True)
@@ -237,15 +238,15 @@ def cmd_scan(
     output: Optional[str] = typer.Option(None, "--output", "-o", help="выходной файл SBOM"),
     config: Optional[str] = typer.Option(None, "--config", help="путь к .sbom-config.json"),
 ):
-    from sbom_utils.config import load_config, get_scanner_config
-    from sbom_utils.scanner import run_scan, SUPPORTED_TOOLS
+    from efc.config import load_config, get_scanner_config
+    from efc.scanner import run_scan, SUPPORTED_TOOLS
 
     cfg = load_config(config)
 
     # Если конфига нет — запускаем init wizard
     if cfg is None:
         typer.echo("Конфиг .sbom-config.json не найден. Запускаем мастер инициализации...")
-        from sbom_utils.init_wizard import run_wizard
+        from efc.init_wizard import run_wizard
         run_wizard(verbose=state["verbose"])
         return
 
@@ -277,7 +278,7 @@ def cmd_config_find_vcs(
     import json
     from rich.console import Console
     from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, MofNCompleteColumn
-    from sbom_utils.config import load_config, _purl_without_version
+    from efc.config import load_config, _purl_without_version
 
     console = Console()
 
@@ -314,7 +315,7 @@ def cmd_config_find_vcs(
 
     console.print(f"Компонентов для поиска VCS: {len(purls_to_find)}")
 
-    from sbom_utils.updater import RefFinder
+    from efc.updater import RefFinder
 
     ref_finder = RefFinder()
     found = 0
@@ -369,7 +370,7 @@ def cmd_config_status(
     import json
     from rich.console import Console
     from rich.table import Table
-    from sbom_utils.config import load_config
+    from efc.config import load_config
 
     console = Console()
 
@@ -437,7 +438,7 @@ def cmd_config_init(
     output: Optional[str] = typer.Option(None, "-o", "--output", help="путь к выходному конфигу (по умолчанию .sbom-config.json)"),
 ):
     import json
-    from sbom_utils.config import init_config
+    from efc.config import init_config
 
     boms = []
     for path in inputs:
@@ -447,12 +448,24 @@ def cmd_config_init(
     init_config(boms[0], output_path=output, extra_boms=boms[1:])
 
 
+@config_app.command("migrate", help="Мигрировать старые файлы маппингов в .sbom-config.json")
+def cmd_config_migrate(
+    vcs: Optional[str] = typer.Option(None, "--vcs", help="путь к .purl_to_vcs.json"),
+    gost: Optional[str] = typer.Option(None, "--gost", help="путь к .purl_to_gost.json"),
+    exclude: Optional[str] = typer.Option(None, "--exclude", help="путь к .purl_exclude.json"),
+    output: Optional[str] = typer.Option(None, "-o", "--output", help="путь к выходному конфигу (по умолчанию .sbom-config.json)"),
+):
+    from efc.config import migrate_config
+
+    migrate_config(vcs_path=vcs, gost_path=gost, exclude_path=exclude, output_path=output)
+
+
 # ── init ───────────────────────────────────────────────────────────────────────
 
 
 @app.command("init", help="Пошаговый мастер инициализации SBOM-проекта")
 def cmd_init():
-    from sbom_utils.init_wizard import run_wizard
+    from efc.init_wizard import run_wizard
 
     run_wizard(verbose=state["verbose"])
 

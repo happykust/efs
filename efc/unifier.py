@@ -1,12 +1,12 @@
 # SPDX-FileCopyrightText: 2024 Ekaterina Shastun, ISPRAS
+# SPDX-FileCopyrightText: 2026 Kirill Nikolaevskiy
 # SPDX-License-Identifier: Apache-2.0
 
-import argparse
 import datetime
 import json
 from pathlib import Path
 
-from .sbom_utils import opener
+from .utils import opener
 
 _PKG_DIR = Path(__file__).parent.resolve()
 
@@ -28,14 +28,6 @@ def eval_prop(components, name):
     if vals == {'no'}:
         return 'no'
     return ''
-
-
-def configure_parser(parser):
-    parser.add_argument('--app-name', required=True, help='название продукта')
-    parser.add_argument('--app-version', required=True, help='версия продукта')
-    parser.add_argument('--manufacturer', required=True, help='название организации — изготовителя продукта')
-    parser.add_argument('input', nargs='+', help='перечень входных файлов в формате CycloneDX JSON для объединения; рекомендуется использовать файлы, проверенные скриптом sbom-checker.py')
-    parser.add_argument('output', help='выходной файл, в котором продукты из входных файлов объединены в список компонентов')
 
 
 def run(args):
@@ -90,14 +82,3 @@ def run(args):
 
     with open(args.output, 'w', encoding=encoding) as f:
         json.dump(output_data, f, indent=2, ensure_ascii=False)
-
-
-def main():
-    parser = argparse.ArgumentParser(description='объединение sbom-файлов')
-    configure_parser(parser)
-    args = parser.parse_args()
-    run(args)
-
-
-if __name__ == '__main__':
-    main()

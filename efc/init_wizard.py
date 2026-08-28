@@ -1,4 +1,5 @@
 # SPDX-FileCopyrightText: 2024 Ekaterina Shastun, ISPRAS
+# SPDX-FileCopyrightText: 2026 Kirill Nikolaevskiy
 # SPDX-License-Identifier: Apache-2.0
 
 import json
@@ -59,7 +60,7 @@ def _step_scan(tool: str, sbom_filename: str) -> bool:
     if src_dir is None:
         return False
 
-    from sbom_utils.scanner import run_scan
+    from efc.scanner import run_scan
 
     with console.status(f"Генерация SBOM через {tool}..."):
         return run_scan(tool, src_dir, sbom_filename)
@@ -82,7 +83,7 @@ def _step_config(sbom_filename: str, tool: str):
         console.print(f"  [red]✗[/red] Файл {sbom_filename} не найден. Сначала сгенерируйте SBOM.")
         return
 
-    from sbom_utils.config import init_config
+    from efc.config import init_config
 
     with open(sbom_path, encoding="utf-8") as f:
         bom = json.load(f)
@@ -132,8 +133,8 @@ def _step_vcs_refs(sbom_filename: str):
         console.print(f"  [red]✗[/red] Конфиг {_CONFIG_FILENAME} не найден. Сначала создайте его (шаг 3).")
         return
 
-    from sbom_utils.config import _purl_without_version
-    from sbom_utils.updater import RefFinder
+    from efc.config import _purl_without_version
+    from efc.updater import RefFinder
 
     with open(sbom_path, encoding="utf-8") as f:
         bom = json.load(f)
@@ -241,7 +242,7 @@ def _step_postprocess(sbom_filename: str):
     if output_name is None:
         return
 
-    from sbom_utils.cdxgen_postprocess import run as postprocess_run
+    from efc.postprocess import run as postprocess_run
 
     args = SimpleNamespace(
         input=str(sbom_path),

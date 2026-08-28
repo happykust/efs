@@ -1,4 +1,5 @@
 # SPDX-FileCopyrightText: 2024 Ekaterina Shastun, ISPRAS
+# SPDX-FileCopyrightText: 2026 Kirill Nikolaevskiy
 # SPDX-License-Identifier: Apache-2.0
 
 """

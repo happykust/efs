@@ -1,14 +1,10 @@
 # SPDX-FileCopyrightText: 2024 Artem Irkhin
+# SPDX-FileCopyrightText: 2026 Kirill Nikolaevskiy
 # SPDX-License-Identifier: Apache-2.0
 
-import csv, argparse
+import csv
 
-from .sbom_utils import opener, get_prop, combine_source_langs
-
-
-def configure_parser(parser):
-    parser.add_argument('input', help='входной файл, содержащий перечень заимствованных компонентов, в JSON формате')
-    parser.add_argument('output', help='выходной файл в формате csv, содержащий таблицу со всеми компонентами из входного файла')
+from .utils import opener, get_prop, combine_source_langs
 
 
 def run(args):
@@ -51,14 +47,3 @@ def run(args):
             writer = csv.writer(file)
             writer.writerow([idx, component['name'], component['version'], combine_source_langs(get_prop(props, 'GOST:source_langs'), get_prop(props, 'source_langs')), special_function, urls])
         idx += 1
-
-
-def main():
-    parser = argparse.ArgumentParser(description='генератор таблицы компонентов в формате csv')
-    configure_parser(parser)
-    args = parser.parse_args()
-    run(args)
-
-
-if __name__ == '__main__':
-    main()

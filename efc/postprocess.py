@@ -16,7 +16,6 @@ sbom-checker (CycloneDX 1.6 + ГОСТ-расширения), убирая ли�
     cdxgen-postprocess raw_bom.json bom.json --strip-only
 """
 
-import argparse
 import datetime
 import json
 import re
@@ -24,7 +23,7 @@ from collections import deque
 from pathlib import Path
 from urllib.parse import unquote
 
-from sbom_utils.config import (
+from efc.config import (
     load_config,
     config_to_purl_to_vcs,
     config_to_purl_to_gost,
@@ -669,61 +668,6 @@ def process_bom(bom, args, purl_to_vcs=None, purl_to_gost=None, purl_exclude=Non
     return bom
 
 
-def configure_parser(parser):
-    parser.add_argument("input", help="Входной файл BOM (JSON)")
-    parser.add_argument("output", help="Выходной файл BOM (JSON)")
-    parser.add_argument("--app-name", help="Название продукта (metadata.component.name)")
-    parser.add_argument("--app-version", help="Версия продукта (metadata.component.version)")
-    parser.add_argument("--manufacturer", help="Организация-изготовитель (metadata.component.manufacturer.name)")
-    parser.add_argument(
-        "--gost-default",
-        default=DEFAULT_GOST_VALUE,
-        choices=["yes", "no", "indirect"],
-        help=f"Значение ГОСТ-свойств по умолчанию (default: {DEFAULT_GOST_VALUE})",
-    )
-    parser.add_argument(
-        "--strip-only",
-        action="store_true",
-        help="Только очистить лишние поля, не трогать metadata",
-    )
-    parser.add_argument(
-        "--keep-all-fields",
-        action="store_true",
-        help="Не удалять необязательные поля компонентов",
-    )
-    parser.add_argument(
-        "--provided-by",
-        metavar="VALUE",
-        help="Установить GOST:provided_by для leaf-компонентов без этого свойства (например, название поставщика)",
-    )
-    parser.add_argument(
-        "--purl-to-vcs",
-        metavar="PATH",
-        help=f"Путь к файлу маппинга purl→vcs (по умолчанию ищется {_PURL_TO_VCS_FILENAME} в текущей директории)",
-    )
-    parser.add_argument(
-        "--purl-to-gost",
-        metavar="PATH",
-        help=f"Путь к файлу маппинга purl→GOST-свойства (по умолчанию ищется {_PURL_TO_GOST_FILENAME} в текущей директории)",
-    )
-    parser.add_argument(
-        "--purl-exclude",
-        metavar="PATH",
-        help=f"Путь к файлу списка purl для исключения (по умолчанию ищется {_PURL_EXCLUDE_FILENAME} в текущей директории)",
-    )
-    parser.add_argument(
-        "--init-exclude",
-        action="store_true",
-        help=f"Сгенерировать шаблон {_PURL_EXCLUDE_FILENAME} из входного BOM и выйти",
-    )
-    parser.add_argument(
-        "--pretty",
-        action="store_true",
-        default=True,
-        help="Форматировать JSON (по умолчанию: да)",
-    )
-
-
 def run(args):
     # Чтение
     try:
@@ -820,18 +764,3 @@ def run(args):
     mfr = meta_comp.get("manufacturer", {})
     if mfr.get("name") == "TODO":
         print(f"  ВНИМАНИЕ: metadata.component.manufacturer.name = TODO — нужно заполнить")
-
-
-def main():
-    parser = argparse.ArgumentParser(
-        description="Постобработка SBOM из cdxgen для sbom-checker",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=__doc__,
-    )
-    configure_parser(parser)
-    args = parser.parse_args()
-    run(args)
-
-
-if __name__ == "__main__":
-    main()

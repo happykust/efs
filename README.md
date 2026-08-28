@@ -1,32 +1,46 @@
-# sbom-utils
+# efc — Easy FSTEC Certification
 
-Набор CLI-инструментов для валидации, обогащения, объединения и экспорта SBOM-файлов (Software Bill of Materials) в формате CycloneDX JSON с поддержкой расширений ГОСТ.
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+
+CLI-приложение для подготовки перечня заимствованных программных компонентов под требования ФСТЭК России и ГОСТ Р 56939-2024: генерация SBOM, его валидация, обогащение VCS-ссылками и ГОСТ-свойствами, объединение и экспорт в CSV/ODT.
+
+Формат — CycloneDX JSON с расширениями ГОСТ (`GOST:attack_surface`, `GOST:security_function`, `GOST:source_langs`, `GOST:provided_by`).
 
 ## Требования
 
 * Python 3.12 или выше
 * [uv](https://docs.astral.sh/uv/) (рекомендуемый менеджер пакетов)
 * Для `--check-vcs`: git, subversion, mercurial (опционально)
+* Для `efc scan`: [cdxgen](https://github.com/CycloneDX/cdxgen) или [trivy](https://github.com/aquasecurity/trivy)
 
 ## Установка
 
 ```bash
-# Через uv (рекомендуется)
-uv pip install -e .
+# Через uv
+uv tool install efc
 
 # Или через pip
-pip install -e .
+pip install efc
 ```
 
-После установки доступна единая CLI-утилита `sbom`:
+Установка из исходников для разработки:
 
 ```bash
-sbom <команда> [аргументы]
+git clone https://github.com/happykust/efc.git
+cd efc
+uv sync
+```
+
+После установки доступна CLI-утилита `efc`:
+
+```bash
+efc <команда> [аргументы]
 ```
 
 Запуск без установки:
 ```bash
-python -m sbom_utils.cli <команда> [аргументы]
+python -m efc.cli <команда> [аргументы]
 ```
 
 ## Быстрый старт
@@ -35,24 +49,24 @@ python -m sbom_utils.cli <команда> [аргументы]
 
 ```bash
 # 1. Сгенерировать SBOM (cdxgen или trivy — настраивается в конфиге)
-sbom scan
+efc scan
 
 # 2. Создать конфиг из SBOM (для нового проекта)
-sbom config init bom.json
+efc config init bom.json
 
 # 3. Отредактировать .sbom-config.json — настроить компоненты, форки, исключения
 
 # 4. Постобработка SBOM с применением конфига
-sbom postprocess bom.json result.json \
+efc postprocess bom.json result.json \
   --app-name "МойПродукт" --app-version "1.0.0" --manufacturer "ООО МояКомпания"
 
 # 5. Валидация результата
-sbom check result.json
+efc check result.json
 ```
 
 Или воспользуйтесь интерактивным мастером:
 ```bash
-sbom init
+efc init
 ```
 
 ## Единый конфиг `.sbom-config.json`
@@ -173,23 +187,23 @@ sbom init
 
 ```bash
 # Сгенерировать конфиг из SBOM (добавит все purl, сохранит существующие настройки)
-sbom config init bom.json
-sbom config init bom.json -o my-config.json
-sbom config init bom.json -i extra1.json -i extra2.json
+efc config init bom.json
+efc config init bom.json -o my-config.json
+efc config init bom.json -i extra1.json -i extra2.json
 
 # Мигрировать из старых файлов
-sbom config migrate
-sbom config migrate --vcs .purl_to_vcs.json --gost .purl_to_gost.json --exclude .purl_exclude.json
+efc config migrate
+efc config migrate --vcs .purl_to_vcs.json --gost .purl_to_gost.json --exclude .purl_exclude.json
 ```
 
 ## Команды
 
-### sbom check
+### efc check
 
 Валидация SBOM по JSON Schema (CycloneDX 1.6) с опциональной проверкой VCS-URL и source-distribution.
 
 ```bash
-sbom check <file.json> [--check-vcs] [--check-vcs-leaf-only] [--check-source-distribution]
+efc check <file.json> [--check-vcs] [--check-vcs-leaf-only] [--check-source-distribution]
            [--format oss|container] [-e N] [-v]
 ```
 
@@ -204,16 +218,16 @@ sbom check <file.json> [--check-vcs] [--check-vcs-leaf-only] [--check-source-dis
 | `-v, --verbose` | Подробный вывод |
 
 ```bash
-sbom check sbom.json
-sbom check sbom.json --check-vcs --format=oss -e 0
+efc check sbom.json
+efc check sbom.json --check-vcs --format=oss -e 0
 ```
 
-### sbom postprocess
+### efc postprocess
 
 Постобработка вывода [cdxgen](https://github.com/CycloneDX/cdxgen): очистка лишних полей, нормализация GOST-свойств, применение конфига.
 
 ```bash
-sbom postprocess <input.json> <output.json> [--config PATH]
+efc postprocess <input.json> <output.json> [--config PATH]
                  [--app-name X] [--app-version Y] [--manufacturer Z]
                  [--gost-default yes|no|indirect] [--strip-only] [--keep-all-fields]
                  [--provided-by NAME] [--purl-to-vcs FILE] [--purl-to-gost FILE]
@@ -241,18 +255,18 @@ sbom postprocess <input.json> <output.json> [--config PATH]
 
 ```bash
 # С конфигом (рекомендуется)
-sbom postprocess bom.json result.json --app-name "App" --app-version "1.0" --manufacturer "Org"
+efc postprocess bom.json result.json --app-name "App" --app-version "1.0" --manufacturer "Org"
 
 # Со старыми файлами (обратная совместимость)
-sbom postprocess bom.json result.json --purl-to-vcs .purl_to_vcs.json --purl-to-gost .purl_to_gost.json
+efc postprocess bom.json result.json --purl-to-vcs .purl_to_vcs.json --purl-to-gost .purl_to_gost.json
 ```
 
-### sbom update
+### efc update
 
 Обогащение SBOM: поиск VCS-ссылок через ecosystems.ms / NuGet / RubyGems, добавление GOST-свойств, перенос метаинформации из предыдущей версии SBOM.
 
 ```bash
-sbom update <input.json> [output.json] [--ref] [--props] [--gost] [--fix-all]
+efc update <input.json> [output.json] [--ref] [--props] [--gost] [--fix-all]
             [--app-name X] [--app-version Y] [--manufacturer Z]
             [--purl-to-vcs PATH] [--purl-to-gost PATH]
             [--init-gost-map] [--init-purl-map] [-i EXTRA...] [--update OLD]
@@ -271,31 +285,31 @@ sbom update <input.json> [output.json] [--ref] [--props] [--gost] [--fix-all]
 | `--update OLD` | Перенести метаинформацию из предыдущей версии SBOM |
 
 ```bash
-sbom update input.json output.json --fix-all
-sbom update input.json --init-purl-map --init-gost-map
-sbom update new.json updated.json --update old.json
+efc update input.json output.json --fix-all
+efc update input.json --init-purl-map --init-gost-map
+efc update new.json updated.json --update old.json
 ```
 
-### sbom merge
+### efc merge
 
 Объединение нескольких SBOM в один с агрегацией GOST-свойств (`yes` > `indirect` > `no`).
 
 ```bash
-sbom merge <in1.json> [in2.json ...] <out.json> --app-name X --app-version Y --manufacturer Z
+efc merge <in1.json> [in2.json ...] <out.json> --app-name X --app-version Y --manufacturer Z
 ```
 
 ```bash
-sbom merge sbom1.json sbom2.json merged.json \
+efc merge sbom1.json sbom2.json merged.json \
   --app-name "МойПродукт" --app-version "1.0.0" --manufacturer "ООО Компания"
 ```
 
-### sbom export csv / odt
+### efc export csv / odt
 
 Экспорт SBOM в CSV или ODT.
 
 ```bash
-sbom export csv <input.json> <output.csv>
-sbom export odt <input.json> <output.odt> [--format oss|container] [-t]
+efc export csv <input.json> <output.csv>
+efc export odt <input.json> <output.odt> [--format oss|container] [-t]
 ```
 
 | Аргумент | Описание |
@@ -303,12 +317,12 @@ sbom export odt <input.json> <output.odt> [--format oss|container] [-t]
 | `-t, --pa-fb-ontop` | Помещение записей «ПА» и «ФБ» в начало таблицы (только ODT) |
 | `--format FORMAT` | `oss` (по умолчанию) или `container` (только ODT) |
 
-### sbom scan
+### efc scan
 
-Генерация SBOM с помощью cdxgen или trivy. Читает настройки из секции `scanner` конфига `.sbom-config.json`. Если конфиг не найден — запускает `sbom init`.
+Генерация SBOM с помощью cdxgen или trivy. Читает настройки из секции `scanner` конфига `.sbom-config.json`. Если конфиг не найден — запускает `efc init`.
 
 ```bash
-sbom scan [--tool cdxgen|trivy] [--target PATH] [--output FILE] [--config PATH]
+efc scan [--tool cdxgen|trivy] [--target PATH] [--output FILE] [--config PATH]
 ```
 
 | Аргумент | Описание |
@@ -337,18 +351,18 @@ sbom scan [--tool cdxgen|trivy] [--target PATH] [--output FILE] [--config PATH]
 Для cdxgen `options` записываются в `.cdxgenrc`. Для trivy: `command` — подкоманда (`fs`, `image`, `repo`), `args` — дополнительные флаги CLI.
 
 ```bash
-sbom scan                        # всё из конфига
-sbom scan --tool trivy           # переопределить инструмент
-sbom scan --target ./src         # переопределить цель
-sbom scan --output my-bom.json   # переопределить выходной файл
+efc scan                        # всё из конфига
+efc scan --tool trivy           # переопределить инструмент
+efc scan --target ./src         # переопределить цель
+efc scan --output my-bom.json   # переопределить выходной файл
 ```
 
-### sbom init
+### efc init
 
 Интерактивный мастер инициализации SBOM-проекта: выбор инструмента (cdxgen/trivy), генерация SBOM, создание конфига, поиск VCS-ссылок.
 
 ```bash
-sbom init
+efc init
 ```
 
 ## GOST-свойства
@@ -367,30 +381,42 @@ sbom init
 Старые файлы маппингов (`.purl_to_vcs.json`, `.purl_to_gost.json`, `.purl_exclude.json`) продолжают работать. Если в текущей директории есть `.sbom-config.json`, он имеет приоритет. Для миграции:
 
 ```bash
-sbom config migrate
+efc config migrate
 ```
 
 ## Структура проекта
 
 ```
-sbom_utils/
+efc/
 ├── cli.py                  # Единая CLI-точка входа (typer)
 ├── config.py               # Единый конфиг .sbom-config.json
 ├── scanner.py              # Запуск SBOM-сканеров (cdxgen, trivy)
 ├── checker.py              # Валидация SBOM
 ├── updater.py              # Обогащение SBOM (VCS через API)
 ├── unifier.py              # Объединение SBOM
+├── postprocess.py          # Постобработка вывода cdxgen/trivy
 ├── to_csv.py               # Экспорт в CSV
 ├── to_odt.py               # Экспорт в ODT
-├── cdxgen_postprocess.py   # Постобработка cdxgen
 ├── init_wizard.py          # Интерактивный мастер
-├── sbom_utils.py           # Общие утилиты
+├── utils.py                # Общие утилиты (opener, check_repo, кеш)
 ├── schemas/                # JSON Schema (CycloneDX 1.6)
 ├── additional_schemas/     # Внешние схемы (SPDX, JSF)
-├── odt_templates/          # Шаблоны ODT-документов
-└── purl_to_vcs.json        # Встроенный маппинг purl → VCS
+└── odt_templates/          # Шаблоны ODT-документов
 ```
+
+## Разработка
+
+```bash
+uv sync              # установить зависимости, включая dev-группу
+uv run pytest        # запустить тесты
+uv run ruff check .  # линтер
+uv run ruff format . # форматирование
+```
+
+## Происхождение
+
+Проект является производной работой от [sbom-checker](https://gitlab.community.ispras.ru/sdl-tools/sbom-checker), разработанного в Институте системного программирования РАН (ИСП РАН) и распространяемого на условиях Apache License 2.0. Атрибуция приведена в файле [NOTICE](NOTICE).
 
 ## Лицензия
 
-Apache-2.0
+[Apache-2.0](LICENSE)

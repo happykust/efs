@@ -1,4 +1,5 @@
 # SPDX-FileCopyrightText: 2024 Ekaterina Shastun, ISPRAS
+# SPDX-FileCopyrightText: 2026 Kirill Nikolaevskiy
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import Counter
@@ -197,14 +198,14 @@ def opener(filename, pairs=False):
     return data, encoding
 
 def load_cache(type):
-    cache_file = platformdirs.user_cache_path('sbom-checker', ensure_exists=True) / f"check_{type.replace('-', '_')}.json"
+    cache_file = platformdirs.user_cache_path('efc', ensure_exists=True) / f"check_{type.replace('-', '_')}.json"
     if os.path.isfile(cache_file):
         with open(cache_file) as f:
             return json.load(f)
     return dict()
 
 def dump_cache(type, data):
-    cache_file = platformdirs.user_cache_path('sbom-checker', ensure_exists=True) / f"check_{type.replace('-', '_')}.json"
+    cache_file = platformdirs.user_cache_path('efc', ensure_exists=True) / f"check_{type.replace('-', '_')}.json"
     with open(cache_file, 'w') as f:
         json.dump(data, f)
 

@@ -1,0 +1,18 @@
+efc — Easy FSTEC Certification
+Copyright 2026 Kirill Nikolaevskiy
+
+Проект является производной работой (derivative work) от sbom-checker,
+разработанного в Институте системного программирования РАН (ИСП РАН):
+
+    sbom-checker
+    Copyright 2024 Ekaterina Shastun, ISPRAS
+    https://gitlab.community.ispras.ru/sdl-tools/sbom-checker
+    Licensed under the Apache License, Version 2.0
+
+Исходный код sbom-checker распространяется на условиях Apache License 2.0.
+Файлы, унаследованные от оригинального проекта, сохраняют исходные
+SPDX-заголовки с указанием авторства ИСП РАН.
+
+This product includes software developed at
+Ivannikov Institute for System Programming of the Russian Academy of Sciences
+(ISPRAS).

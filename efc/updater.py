@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2024 Ekaterina Shastun, ISPRAS
+# SPDX-FileCopyrightText: 2026 Kirill Nikolaevskiy
 # SPDX-License-Identifier: Apache-2.0
 
-import argparse
 import concurrent.futures
 import datetime
 import json
@@ -13,7 +13,7 @@ import threading
 from requests import Session, adapters
 import xml.etree.ElementTree as ET
 
-from .sbom_utils import opener, check_repo, load_cache, dump_cache
+from .utils import opener, check_repo, load_cache, dump_cache
 
 _PURL_TO_VCS_FILENAME = '.purl_to_vcs.json'
 _PURL_TO_GOST_FILENAME = '.purl_to_gost.json'
@@ -466,26 +466,6 @@ def _extract_purls(filenames, skip_provided_by=False, purl_to_gost=None):
     return sorted(purls)
 
 
-def configure_parser(parser):
-    parser.add_argument('input', help='входной файл в формате CycloneDX JSON, содержащий актуальную информацию о составе заимствованных компонентов')
-    parser.add_argument('output', nargs='?', default=None, help='выходной файл с дооформленным переченем заимствованных компонентов')
-    parser.add_argument('--props', action='store_true',
-                        help='добавить {"name": "GOST:attack_surface", "value": "yes"} и {"name": "GOST:security_function", "value": "yes"} в поле "properties" для каждого компонента входного файла, при их отсутствии')
-    parser.add_argument('--app-name', help='установить название продукта')
-    parser.add_argument('--app-version', help='установить версию продукта')
-    parser.add_argument('--manufacturer', help='установить название организации — изготовителя продукта')
-    parser.add_argument('--ref', action='store_true', help='установить поле "externalReferences", основываясь на поле "purl" компонента; если ссылки на репозиторий не было найдено, используется "sbom-updater_generated_placeholder:"')
-    parser.add_argument('--purl-to-vcs', metavar='PATH', help=f'путь к файлу маппинга purl→vcs (по умолчанию ищется {_PURL_TO_VCS_FILENAME} в текущей директории, затем встроенный в пакет)')
-    parser.add_argument('--gost', action='store_true',
-                        help=f'установить GOST-свойства на основе файла {_PURL_TO_GOST_FILENAME}: по умолчанию "no", для конкретных purl — значения из файла')
-    parser.add_argument('--purl-to-gost', metavar='PATH', help=f'путь к файлу маппинга purl→GOST (по умолчанию ищется {_PURL_TO_GOST_FILENAME} в текущей директории)')
-    parser.add_argument('--init-gost-map', action='store_true', help=f'сгенерировать шаблон {_PURL_TO_GOST_FILENAME} из purl компонентов входного файла; существующие маппинги сохраняются; output игнорируется')
-    parser.add_argument('--init-purl-map', action='store_true', help=f'сгенерировать шаблон {_PURL_TO_VCS_FILENAME} из purl компонентов входного файла (input); существующие маппинги сохраняются; output игнорируется')
-    parser.add_argument('-i', '--extra-input', nargs='*', default=[], metavar='FILE', help='дополнительные SBOM-файлы для --init-purl-map и --init-gost-map')
-    parser.add_argument('--fix-all', action='store_true', help=f'применить все вышеописанные опции; если необходимое поле остутствует и его значение не указано, используется "{DEFAULT_VALUE}"')
-    parser.add_argument('--update', metavar='OLD_SBOM', help='предыдущая версия перечня заимствованных компонентов, состав и версии которых могли устареть, но метаинформацию о приложении и компонентах требуется по возможности перенести в новый перечень')
-
-
 def run(args, progress_callback=None):
     if getattr(args, 'verbose', False):
         logging.basicConfig(format='%(message)s', level="INFO")
@@ -753,15 +733,3 @@ def run(args, progress_callback=None):
         input_data['version'] += 1
     with open(args.output, 'w', encoding=encoding) as f:
         json.dump(input_data, f, indent=2, ensure_ascii=False)
-
-
-def main():
-    parser = argparse.ArgumentParser(description='изменение sbom-файлов')
-    parser.add_argument('-v', '--verbose', action='store_true', help='подробный вывод')
-    configure_parser(parser)
-    args = parser.parse_args()
-    run(args)
-
-
-if __name__ == '__main__':
-    main()

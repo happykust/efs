@@ -107,10 +107,19 @@ def get_gost_prop(config, purl, prop_name):
 
 
 def is_excluded(config, purl):
-    """Проверить, исключён ли компонент по конфигу."""
+    """Проверить, исключён ли компонент по конфигу.
+
+    Возвращает:
+    - False — не исключён
+    - True — исключён с каскадом (транзитивные зависимости тоже удаляются)
+    - "direct" — исключён только сам компонент (зависимости остаются)
+    """
     entry = _lookup_component(config, purl)
     if entry:
-        return entry.get('exclude', False)
+        val = entry.get('exclude', False)
+        if val == "direct":
+            return "direct"
+        return bool(val)
     return False
 
 
@@ -186,12 +195,22 @@ def config_to_purl_to_gost(config):
 
 
 def config_to_purl_exclude(config):
-    """Конвертировать конфиг в формат purl_exclude (для обратной совместимости)."""
-    result = []
+    """Конвертировать конфиг в формат purl_exclude (для обратной совместимости).
+
+    Возвращает tuple (cascade_list, direct_list):
+    - cascade_list: purl для исключения с каскадом транзитивных зависимостей
+    - direct_list: purl для исключения только самого компонента (без каскада)
+    """
+    cascade = []
+    direct = []
     for purl, entry in config.get('components', {}).items():
-        if isinstance(entry, dict) and entry.get('exclude', False):
-            result.append(purl)
-    return result
+        if isinstance(entry, dict):
+            val = entry.get('exclude', False)
+            if val == "direct":
+                direct.append(purl)
+            elif val:
+                cascade.append(purl)
+    return cascade, direct
 
 
 # ── Генерация конфига ─────────────────────────────────────────────────────────
@@ -442,24 +461,18 @@ def apply_config_to_component(comp, config, gost_default='no', provided_by_defau
     # VCS из конфига
     vcs_url = get_vcs(config, purl)
     if vcs_url:
-        refs = comp.get('externalReferences', [])
-        if not isinstance(refs, list):
-            refs = []
-            comp['externalReferences'] = refs
-        # Заменить placeholder (TODO/пустой) или добавить если нет vcs
-        placeholder_idx = None
-        has_valid_vcs = False
+        if 'externalReferences' not in comp or not isinstance(comp.get('externalReferences'), list):
+            comp['externalReferences'] = []
+        refs = comp['externalReferences']
+        vcs_idx = None
         for i, r in enumerate(refs):
             if r.get('type') == 'vcs':
-                if r.get('url') in ('TODO', '', None, 'sbom-updater_generated_placeholder:'):
-                    placeholder_idx = i
-                else:
-                    has_valid_vcs = True
-        if not has_valid_vcs:
-            if placeholder_idx is not None:
-                refs[placeholder_idx]['url'] = vcs_url
-            else:
-                refs.append({'type': 'vcs', 'url': vcs_url})
+                vcs_idx = i
+                break
+        if vcs_idx is not None:
+            refs[vcs_idx]['url'] = vcs_url
+        else:
+            refs.append({'type': 'vcs', 'url': vcs_url})
 
 
 def _set_prop(props, name, value):

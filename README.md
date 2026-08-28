@@ -133,7 +133,7 @@ sbom init
 | `security_function` | GOST:security_function |
 | `provided_by` | GOST:provided_by |
 | `manufacturer` | Организация-изготовитель компонента |
-| `exclude` | `true` — исключить компонент и его транзитивные зависимости |
+| `exclude` | `true` — исключить компонент и его транзитивные зависимости; `"direct"` — только сам компонент. Ключ без версии убирает все версии, с версией — только её (`pkg:npm/ajv@6.12.6` не тронет `ajv@8.20.0`) |
 | `pedigree` | Объект CycloneDX pedigree (см. ниже) |
 
 ### Pedigree — описание форкнутых библиотек

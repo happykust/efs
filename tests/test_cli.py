@@ -307,3 +307,73 @@ class TestExportMultipleLanguages:
         with zipfile.ZipFile(out) as archive:
             text = archive.read("content.xml").decode("utf-8")
         assert "Python, C" in text
+
+
+class TestPostprocessAugmentsConfig:
+    def _bom(self, tmp_path, components):
+        path = tmp_path / "bom.json"
+        path.write_text(json.dumps(make_bom(components), ensure_ascii=False), encoding="utf-8")
+        return str(path)
+
+    def _run(self, tmp_path, bom_path, config_path):
+        return runner.invoke(
+            app,
+            ["postprocess", bom_path, str(tmp_path / "out.json"), "--app-name", "П", "--config", str(config_path)],
+        )
+
+    def test_new_components_added_to_config(self, tmp_path):
+        config_path = tmp_path / ".efs-config.json"
+        config_path.write_text(
+            json.dumps({"components": {"pkg:pypi/requests": {"attack_surface": "yes"}}}), encoding="utf-8"
+        )
+        bom_path = self._bom(
+            tmp_path,
+            [make_component("requests", "2.32.5"), make_component("lodash", "4.17.21", purl="pkg:npm/lodash@4.17.21")],
+        )
+
+        result = self._run(tmp_path, bom_path, config_path)
+        assert result.exit_code == 0, result.output
+
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        assert "pkg:npm/lodash" in config["components"]
+        assert config["components"]["pkg:npm/lodash"]["source_langs"] == ["JavaScript"]
+
+    def test_existing_settings_untouched(self, tmp_path):
+        config_path = tmp_path / ".efs-config.json"
+        config_path.write_text(
+            json.dumps({"components": {"pkg:pypi/requests": {"attack_surface": "yes", "vcs": "https://x/y"}}}),
+            encoding="utf-8",
+        )
+        bom_path = self._bom(tmp_path, [make_component("requests", "2.32.5")])
+
+        self._run(tmp_path, bom_path, config_path)
+
+        entry = json.loads(config_path.read_text(encoding="utf-8"))["components"]["pkg:pypi/requests"]
+        assert entry["attack_surface"] == "yes"
+        assert entry["vcs"] == "https://x/y"
+
+    def test_excluded_components_not_dropped_from_config(self, tmp_path):
+        """Исключённого компонента нет в результате, но его настройка должна остаться."""
+        config_path = tmp_path / ".efs-config.json"
+        config_path.write_text(
+            json.dumps({"components": {"pkg:npm/eslint": {"exclude": True}}}), encoding="utf-8"
+        )
+        bom_path = self._bom(
+            tmp_path,
+            [
+                make_component("eslint", "8.0.0", purl="pkg:npm/eslint@8.0.0"),
+                make_component("requests", "2.32.5"),
+            ],
+        )
+
+        self._run(tmp_path, bom_path, config_path)
+
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        assert config["components"]["pkg:npm/eslint"] == {"exclude": True}
+
+    def test_config_not_created_when_absent(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        bom_path = self._bom(tmp_path, [make_component("requests", "2.32.5")])
+        result = runner.invoke(app, ["postprocess", bom_path, str(tmp_path / "out.json"), "--app-name", "П"])
+        assert result.exit_code == 0, result.output
+        assert not (tmp_path / ".efs-config.json").exists()

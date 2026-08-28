@@ -313,3 +313,25 @@ class TestEnsureMetadata:
         config = {"metadata": {"pedigree": {"notes": "Собственная сборка"}}}
         ensure_metadata(bom, "Продукт", "1.0", "ООО", config=config)
         assert bom["metadata"]["component"]["pedigree"] == {"notes": "Собственная сборка"}
+
+
+class TestSourceLangsWhenStripping:
+    def test_language_filled_without_config(self):
+        """Язык следует из purl и не должен зависеть от наличия конфига."""
+        comp = make_component("requests", "2.32.5")
+        strip_component(comp, COMPONENT_STRIP_FIELDS, "no")
+        langs = [p["value"] for p in comp["properties"] if p["name"] == "GOST:source_langs"]
+        assert langs == ["Python"]
+
+    def test_language_not_invented_for_distro_packages(self):
+        comp = make_component("curl", "7.88.1", purl="pkg:deb/debian/curl@7.88.1")
+        strip_component(comp, COMPONENT_STRIP_FIELDS, "no")
+        assert all(p["name"] != "GOST:source_langs" for p in comp["properties"])
+
+    def test_existing_language_preserved_without_config(self):
+        comp = make_component(
+            "requests", "2.32.5", properties=[{"name": "GOST:source_langs", "value": "Python, Rust"}]
+        )
+        strip_component(comp, COMPONENT_STRIP_FIELDS, "no")
+        langs = [p["value"] for p in comp["properties"] if p["name"] == "GOST:source_langs"]
+        assert langs == ["Python, Rust"]

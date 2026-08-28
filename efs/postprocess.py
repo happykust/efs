@@ -30,6 +30,7 @@ from efs.config import (
     config_to_purl_to_vcs,
     get_metadata_config,
     get_pedigree,
+    guess_source_langs,
     load_config,
 )
 
@@ -166,9 +167,10 @@ def strip_component(
     # Оставить только GOST-свойства
     comp["properties"] = [p for p in comp["properties"] if p.get("name", "").startswith(ALLOWED_PROPERTY_PREFIX)]
 
-    # Если есть конфиг — применить настройки компонента (GOST, pedigree, manufacturer, vcs)
-    if config and purl:
-        apply_config_to_component(comp, config, gost_default, provided_by)
+    # Настройки компонента (GOST, pedigree, manufacturer, vcs). Вызываем и без конфига:
+    # язык программирования следует из purl и не зависит от того, описан ли компонент.
+    if purl:
+        apply_config_to_component(comp, config or {}, gost_default, provided_by)
 
     # ГОСТ-свойства: если есть маппинг purl→GOST, использовать его
     # Формат маппинга: {"GOST:attack_surface": {"purl": "yes/indirect"}, ...}
@@ -711,7 +713,7 @@ def run(args):
         n_total = len(config.get("components", {}))
         print(f"Конфиг загружен: {n_total} компонентов, {n_vcs} с VCS")
     else:
-        print("Конфиг .sbom-config.json не найден, используются отдельные файлы маппинга")
+        print("Конфиг .efs-config.json не найден, используются отдельные файлы маппинга")
         # Старый режим: отдельные файлы
         purl_to_vcs = _load_purl_to_vcs(args.purl_to_vcs)
         purl_to_gost = _load_purl_to_gost(args.purl_to_gost)
@@ -728,7 +730,8 @@ def run(args):
                 continue
             base = _purl_without_version(purl)
             if base not in components_cfg:
-                components_cfg[base] = {}
+                langs = guess_source_langs(base)
+                components_cfg[base] = {"source_langs": [langs]} if langs else {}
                 config_added += 1
         if config_added and config_path:
             with open(config_path, "w", encoding="utf-8") as f:

@@ -6,9 +6,31 @@
 import json
 from types import SimpleNamespace
 
-from efc.unifier import eval_prop, run
+import pytest
 
-from .conftest import make_bom, make_component
+from efc.unifier import eval_prop, is_trivy_sbom, run
+
+from .conftest import make_bom, make_component, make_trivy_bom, trivy_component, trivy_manifest
+
+
+def merge_boms(tmp_path, boms):
+    """Записать SBOM во временные файлы, слить их и вернуть результат."""
+    inputs = []
+    for i, bom in enumerate(boms):
+        path = tmp_path / f"in{i}.json"
+        path.write_text(json.dumps(bom, ensure_ascii=False), encoding="utf-8")
+        inputs.append(str(path))
+    out = tmp_path / "merged.json"
+    run(
+        SimpleNamespace(
+            input=inputs,
+            output=str(out),
+            app_name="Продукт",
+            app_version="1.0",
+            manufacturer="ООО Тест",
+        )
+    )
+    return json.loads(out.read_text(encoding="utf-8"))
 
 
 def _gost(name, value):
@@ -110,3 +132,284 @@ class TestRun:
         result = json.loads(out.read_text(encoding="utf-8"))
         props = {p["name"]: p["value"] for p in result["components"][0]["properties"]}
         assert props["GOST:attack_surface"] == "indirect"
+
+
+class TestIsTrivySbom:
+    def test_detects_trivy_report(self):
+        assert is_trivy_sbom(make_trivy_bom()) is True
+
+    def test_regular_sbom_is_not_trivy(self):
+        assert is_trivy_sbom(make_bom([make_component("requests", "2.32.5")])) is False
+
+    def test_missing_metadata_keys_are_safe(self):
+        assert is_trivy_sbom({}) is False
+        assert is_trivy_sbom({"metadata": {}}) is False
+        assert is_trivy_sbom({"metadata": {"tools": {}}}) is False
+
+    def test_other_tool_is_not_trivy(self):
+        bom = make_trivy_bom()
+        bom["metadata"]["tools"]["components"] = [{"group": "cyclonedx", "name": "cdxgen"}]
+        assert is_trivy_sbom(bom) is False
+
+
+class TestTrivyRouting:
+    def _write(self, tmp_path, name, data):
+        path = tmp_path / name
+        path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        return str(path)
+
+    def _args(self, inputs, out):
+        return SimpleNamespace(
+            input=inputs,
+            output=str(out),
+            app_name="Продукт",
+            app_version="1.0",
+            manufacturer="ООО Тест",
+        )
+
+    def test_mixed_inputs_rejected(self, tmp_path):
+        trivy = self._write(tmp_path, "trivy.json", make_trivy_bom())
+        regular = self._write(tmp_path, "regular.json", make_bom([make_component("requests", "2.32.5")]))
+
+        with pytest.raises(SystemExit):
+            run(self._args([trivy, regular], tmp_path / "merged.json"))
+
+    def test_trivy_components_kept_as_components(self, tmp_path):
+        """В trivy-режиме компоненты переносятся сами, а не сворачиваются в один на файл."""
+        first = self._write(
+            tmp_path,
+            "a.json",
+            make_trivy_bom([trivy_component("lodash", "4.17.21", "ref-1", "pkg:npm/lodash@4.17.21")]),
+        )
+        second = self._write(
+            tmp_path,
+            "b.json",
+            make_trivy_bom([trivy_component("axios", "1.6.0", "ref-2", "pkg:npm/axios@1.6.0")]),
+        )
+        out = tmp_path / "merged.json"
+
+        run(self._args([first, second], out))
+
+        result = json.loads(out.read_text(encoding="utf-8"))
+        assert sorted(c["name"] for c in result["components"]) == ["axios", "lodash"]
+
+    def test_metadata_built_from_cli_arguments(self, tmp_path):
+        path = self._write(tmp_path, "a.json", make_trivy_bom())
+        out = tmp_path / "merged.json"
+
+        run(self._args([path], out))
+
+        result = json.loads(out.read_text(encoding="utf-8"))
+        assert result["metadata"]["component"] == {
+            "type": "application",
+            "name": "Продукт",
+            "version": "1.0",
+            "manufacturer": {"name": "ООО Тест"},
+        }
+        assert "tools" not in result["metadata"]
+
+
+class TestTrivyComponents:
+    def test_manifest_components_removed(self, tmp_path):
+        bom = make_trivy_bom(
+            [
+                trivy_manifest("package-lock.json", "manifest-1"),
+                trivy_component("lodash", "4.17.21", "ref-1", "pkg:npm/lodash@4.17.21"),
+            ]
+        )
+        result = merge_boms(tmp_path, [bom])
+        assert [c["name"] for c in result["components"]] == ["lodash"]
+
+    def test_duplicate_purl_collapsed(self, tmp_path):
+        first = make_trivy_bom([trivy_component("lodash", "4.17.21", "ref-a", "pkg:npm/lodash@4.17.21")])
+        second = make_trivy_bom([trivy_component("lodash", "4.17.21", "ref-b", "pkg:npm/lodash@4.17.21")])
+        result = merge_boms(tmp_path, [first, second])
+        assert len(result["components"]) == 1
+
+    def test_different_versions_kept_apart(self, tmp_path):
+        first = make_trivy_bom([trivy_component("lodash", "4.17.21", "ref-a", "pkg:npm/lodash@4.17.21")])
+        second = make_trivy_bom([trivy_component("lodash", "3.10.1", "ref-b", "pkg:npm/lodash@3.10.1")])
+        result = merge_boms(tmp_path, [first, second])
+        assert sorted(c["version"] for c in result["components"]) == ["3.10.1", "4.17.21"]
+
+    def test_properties_of_duplicates_merged(self, tmp_path):
+        first = make_trivy_bom(
+            [
+                trivy_component(
+                    "lodash",
+                    "4.17.21",
+                    "ref-a",
+                    "pkg:npm/lodash@4.17.21",
+                    properties=[{"name": "aquasecurity:trivy:PkgType", "value": "npm"}],
+                )
+            ]
+        )
+        second = make_trivy_bom(
+            [
+                trivy_component(
+                    "lodash",
+                    "4.17.21",
+                    "ref-b",
+                    "pkg:npm/lodash@4.17.21",
+                    properties=[{"name": "aquasecurity:trivy:LayerDigest", "value": "sha256:abc"}],
+                )
+            ]
+        )
+        result = merge_boms(tmp_path, [first, second])
+        names = {p["name"] for p in result["components"][0]["properties"]}
+        assert names == {"aquasecurity:trivy:PkgType", "aquasecurity:trivy:LayerDigest"}
+
+    def test_trivy_properties_preserved(self, tmp_path):
+        bom = make_trivy_bom([trivy_component("lodash", "4.17.21", "ref-a", "pkg:npm/lodash@4.17.21")])
+        result = merge_boms(tmp_path, [bom])
+        assert result["components"][0]["properties"] == [{"name": "aquasecurity:trivy:PkgType", "value": "npm"}]
+
+    def test_component_without_purl_kept_when_not_application(self, tmp_path):
+        bom = make_trivy_bom([trivy_component("безымянный", "1.0", "ref-a")])
+        result = merge_boms(tmp_path, [bom])
+        assert [c["name"] for c in result["components"]] == ["безымянный"]
+
+
+class TestTrivyVulnerabilities:
+    def test_section_absent_when_no_vulnerabilities(self, tmp_path):
+        result = merge_boms(tmp_path, [make_trivy_bom()])
+        assert "vulnerabilities" not in result
+
+    def test_vulnerabilities_collected(self, tmp_path):
+        first = make_trivy_bom(
+            [trivy_component("lodash", "4.17.21", "ref-a", "pkg:npm/lodash@4.17.21")],
+            vulnerabilities=[{"id": "CVE-2021-23337", "affects": [{"ref": "ref-a"}]}],
+        )
+        second = make_trivy_bom(
+            [trivy_component("axios", "1.6.0", "ref-b", "pkg:npm/axios@1.6.0")],
+            vulnerabilities=[{"id": "CVE-2023-45857", "affects": [{"ref": "ref-b"}]}],
+        )
+        result = merge_boms(tmp_path, [first, second])
+        assert sorted(v["id"] for v in result["vulnerabilities"]) == ["CVE-2021-23337", "CVE-2023-45857"]
+
+    def test_same_cve_deduplicated_and_affects_merged(self, tmp_path):
+        first = make_trivy_bom(
+            [trivy_component("lodash", "4.17.21", "ref-a", "pkg:npm/lodash@4.17.21")],
+            vulnerabilities=[{"id": "CVE-2021-23337", "affects": [{"ref": "ref-a"}]}],
+        )
+        second = make_trivy_bom(
+            [trivy_component("axios", "1.6.0", "ref-b", "pkg:npm/axios@1.6.0")],
+            vulnerabilities=[{"id": "CVE-2021-23337", "affects": [{"ref": "ref-b"}]}],
+        )
+        result = merge_boms(tmp_path, [first, second])
+        assert len(result["vulnerabilities"]) == 1
+        assert sorted(a["ref"] for a in result["vulnerabilities"][0]["affects"]) == ["ref-a", "ref-b"]
+
+    def test_affects_ref_remapped_to_surviving_component(self, tmp_path):
+        """Дубликат компонента исчез — ссылка на его bom-ref должна вести на оставшийся."""
+        first = make_trivy_bom([trivy_component("lodash", "4.17.21", "ref-a", "pkg:npm/lodash@4.17.21")])
+        second = make_trivy_bom(
+            [trivy_component("lodash", "4.17.21", "ref-b", "pkg:npm/lodash@4.17.21")],
+            vulnerabilities=[{"id": "CVE-2021-23337", "affects": [{"ref": "ref-b"}]}],
+        )
+        result = merge_boms(tmp_path, [first, second])
+        assert result["vulnerabilities"][0]["affects"] == [{"ref": "ref-a"}]
+
+
+class TestTrivyDependencies:
+    def test_section_absent_when_no_dependencies(self, tmp_path):
+        result = merge_boms(tmp_path, [make_trivy_bom()])
+        assert "dependencies" not in result
+
+    def test_dependencies_collected(self, tmp_path):
+        first = make_trivy_bom(
+            [trivy_component("lodash", "4.17.21", "ref-a", "pkg:npm/lodash@4.17.21")],
+            dependencies=[{"ref": "ref-a", "dependsOn": []}],
+        )
+        second = make_trivy_bom(
+            [trivy_component("axios", "1.6.0", "ref-b", "pkg:npm/axios@1.6.0")],
+            dependencies=[{"ref": "ref-b", "dependsOn": []}],
+        )
+        result = merge_boms(tmp_path, [first, second])
+        assert sorted(d["ref"] for d in result["dependencies"]) == ["ref-a", "ref-b"]
+
+    def test_refs_remapped_and_deduplicated(self, tmp_path):
+        first = make_trivy_bom(
+            [
+                trivy_component("lodash", "4.17.21", "ref-a", "pkg:npm/lodash@4.17.21"),
+                trivy_component("axios", "1.6.0", "ref-x", "pkg:npm/axios@1.6.0"),
+            ],
+            dependencies=[{"ref": "ref-a", "dependsOn": ["ref-x"]}],
+        )
+        second = make_trivy_bom(
+            [
+                trivy_component("lodash", "4.17.21", "ref-b", "pkg:npm/lodash@4.17.21"),
+                trivy_component("chalk", "5.3.0", "ref-y", "pkg:npm/chalk@5.3.0"),
+            ],
+            dependencies=[{"ref": "ref-b", "dependsOn": ["ref-y"]}],
+        )
+        result = merge_boms(tmp_path, [first, second])
+        lodash_entries = [d for d in result["dependencies"] if d["ref"] == "ref-a"]
+        assert len(lodash_entries) == 1
+        assert sorted(lodash_entries[0]["dependsOn"]) == ["ref-x", "ref-y"]
+
+    def test_depends_on_entries_remapped(self, tmp_path):
+        first = make_trivy_bom([trivy_component("lodash", "4.17.21", "ref-a", "pkg:npm/lodash@4.17.21")])
+        second = make_trivy_bom(
+            [
+                trivy_component("lodash", "4.17.21", "ref-b", "pkg:npm/lodash@4.17.21"),
+                trivy_component("axios", "1.6.0", "ref-c", "pkg:npm/axios@1.6.0"),
+            ],
+            dependencies=[{"ref": "ref-c", "dependsOn": ["ref-b"]}],
+        )
+        result = merge_boms(tmp_path, [first, second])
+        assert result["dependencies"] == [{"ref": "ref-c", "dependsOn": ["ref-a"]}]
+
+    def test_manifest_dependencies_dropped(self, tmp_path):
+        """Манифест удалён из компонентов — записи о нём не должны остаться в dependencies."""
+        bom = make_trivy_bom(
+            [
+                trivy_manifest("uv.lock", "manifest-1"),
+                trivy_component("lodash", "4.17.21", "ref-a", "pkg:npm/lodash@4.17.21"),
+            ],
+            dependencies=[
+                {"ref": "manifest-1", "dependsOn": ["ref-a"]},
+                {"ref": "ref-a", "dependsOn": ["manifest-1"]},
+            ],
+        )
+        result = merge_boms(tmp_path, [bom])
+        assert result["dependencies"] == [{"ref": "ref-a", "dependsOn": []}]
+
+    def test_source_root_reference_dropped(self, tmp_path):
+        """Корень входного файла в результат не переносится — ссылки на него тоже."""
+        bom = make_trivy_bom(
+            [trivy_component("lodash", "4.17.21", "ref-a", "pkg:npm/lodash@4.17.21")],
+            dependencies=[
+                {"ref": "root-ref", "dependsOn": ["ref-a"]},
+                {"ref": "ref-a", "dependsOn": []},
+            ],
+        )
+        result = merge_boms(tmp_path, [bom])
+        assert result["dependencies"] == [{"ref": "ref-a", "dependsOn": []}]
+
+    def test_no_dangling_references_after_merge(self, tmp_path):
+        first = make_trivy_bom(
+            [
+                trivy_manifest("package-lock.json", "manifest-1"),
+                trivy_component("lodash", "4.17.21", "ref-a", "pkg:npm/lodash@4.17.21"),
+            ],
+            dependencies=[{"ref": "manifest-1", "dependsOn": ["ref-a"]}, {"ref": "ref-a", "dependsOn": []}],
+        )
+        second = make_trivy_bom(
+            [
+                trivy_manifest("uv.lock", "manifest-2"),
+                trivy_component("lodash", "4.17.21", "ref-b", "pkg:npm/lodash@4.17.21"),
+                trivy_component("axios", "1.6.0", "ref-c", "pkg:npm/axios@1.6.0"),
+            ],
+            dependencies=[
+                {"ref": "manifest-2", "dependsOn": ["ref-b", "ref-c"]},
+                {"ref": "ref-c", "dependsOn": ["ref-b"]},
+            ],
+        )
+        result = merge_boms(tmp_path, [first, second])
+
+        known = {c["bom-ref"] for c in result["components"]}
+        for entry in result["dependencies"]:
+            assert entry["ref"] in known
+            for ref in entry["dependsOn"]:
+                assert ref in known

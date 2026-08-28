@@ -89,3 +89,64 @@ def write_json(tmp_path):
         return path
 
     return _write
+
+
+def make_trivy_bom(components=None, dependencies=None, vulnerabilities=None):
+    """SBOM в том виде, в каком его отдаёт trivy: с metadata.tools и bom-ref в виде UUID."""
+    bom = {
+        "bomFormat": "CycloneDX",
+        "specVersion": "1.6",
+        "version": 1,
+        "metadata": {
+            "timestamp": "2026-01-01T00:00:00+00:00",
+            "tools": {
+                "components": [
+                    {
+                        "type": "application",
+                        "manufacturer": {"name": "Aqua Security Software Ltd."},
+                        "group": "aquasecurity",
+                        "name": "trivy",
+                        "version": "0.74.0",
+                    }
+                ]
+            },
+            "component": {
+                "bom-ref": "root-ref",
+                "type": "application",
+                "name": "target",
+                "properties": [{"name": "aquasecurity:trivy:SchemaVersion", "value": "2"}],
+            },
+        },
+        "components": components if components is not None else [],
+    }
+    if dependencies is not None:
+        bom["dependencies"] = dependencies
+    if vulnerabilities is not None:
+        bom["vulnerabilities"] = vulnerabilities
+    return bom
+
+
+def trivy_component(name, version, ref, purl=None, properties=None):
+    """Компонент в стиле trivy: bom-ref — UUID, свойства с префиксом aquasecurity:trivy."""
+    comp = {
+        "bom-ref": ref,
+        "type": "library",
+        "name": name,
+        "version": version,
+        "properties": properties
+        if properties is not None
+        else [{"name": "aquasecurity:trivy:PkgType", "value": "npm"}],
+    }
+    if purl is not None:
+        comp["purl"] = purl
+    return comp
+
+
+def trivy_manifest(name, ref):
+    """Компонент-манифест: trivy добавляет их как application без purl."""
+    return {
+        "bom-ref": ref,
+        "type": "application",
+        "name": name,
+        "properties": [{"name": "aquasecurity:trivy:Class", "value": "lang-pkgs"}],
+    }

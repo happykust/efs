@@ -33,3 +33,6 @@ bom.json
 .purl_to_gost.json
 .purl_exclude.json
 .cdxgenrc
+
+# Локальные инструкции для агентов
+CLAUDE.md

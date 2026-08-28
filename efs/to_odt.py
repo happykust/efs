@@ -9,7 +9,7 @@ from odf.style import TextProperties
 from odf.table import Table, TableCell, TableRow
 from odf.text import P
 
-from .utils import combine_source_langs, get_prop, get_props, opener
+from .utils import combine_source_langs, get_prop, get_props, opener, source_reference
 
 _PKG_DIR = Path(__file__).parent.resolve()
 
@@ -56,7 +56,7 @@ def run(args):
                     ),
                     get_prop(props, "GOST:attack_surface"),
                     get_prop(props, "GOST:security_function"),
-                    get_ext_ref(comp.get("externalReferences", [])),
+                    get_ext_ref(comp.get("externalReferences", [])) or source_reference(comp),
                 )
                 if element in added_elements:
                     continue

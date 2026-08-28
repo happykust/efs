@@ -4,7 +4,7 @@
 
 import csv
 
-from .utils import combine_source_langs, get_prop, get_props, opener
+from .utils import combine_source_langs, get_prop, get_props, opener, source_reference
 
 
 def run(args):
@@ -42,6 +42,8 @@ def run(args):
                     urls += f"Адрес веб-ресурса компонента: {item['url']}\n"
                 else:
                     urls += f"Иное: {item['url']}\n"
+        if not urls:
+            urls = source_reference(component)
         special_function = {"GOST:attack_surface": "yes/indirect/no", "GOST:security_function": "yes/indirect/no"}
         props = component.get("properties", [])
         attack_surface = get_prop(props, "GOST:attack_surface")

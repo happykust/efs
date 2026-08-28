@@ -150,9 +150,13 @@ def strip_component(
     purl = comp.get("purl", "")
     has_config_pedigree = config and purl and get_pedigree(config, purl)
 
-    # Удалить необязательные поля (кроме pedigree, если он задан в конфиге)
+    # Удалить необязательные поля (кроме pedigree, если он задан в конфиге).
+    # У образов контейнеров description — это графа «Назначение» отчётной формы.
+    is_container = comp.get("type") == "container"
     for field in strip_fields:
         if field == "pedigree" and has_config_pedigree:
+            continue
+        if field == "description" and is_container:
             continue
         comp.pop(field, None)
 

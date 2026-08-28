@@ -333,3 +333,17 @@ class TestSourceLangsWhenStripping:
         strip_component(comp, COMPONENT_STRIP_FIELDS, "no")
         langs = [p["value"] for p in comp["properties"] if p["name"] == "GOST:source_langs"]
         assert langs == ["Python, Rust"]
+
+
+class TestContainerPurpose:
+    def test_description_kept_for_containers(self):
+        """Назначение образа берётся из description — постобработка не должна его стирать."""
+        comp = make_component("app-image", "1.0", purl="pkg:oci/app@1.0", type="container")
+        comp["description"] = "Образ прикладного сервиса"
+        strip_component(comp, COMPONENT_STRIP_FIELDS, "no")
+        assert comp["description"] == "Образ прикладного сервиса"
+
+    def test_description_still_dropped_for_libraries(self):
+        comp = make_component("requests", "2.32.5", description="HTTP for humans")
+        strip_component(comp, COMPONENT_STRIP_FIELDS, "no")
+        assert "description" not in comp

@@ -50,10 +50,21 @@ app.add_typer(config_app)
 state = {"verbose": False}
 
 
+def _print_version(value: bool):
+    if value:
+        from efs import __version__
+
+        typer.echo(f"efs {__version__}")
+        raise typer.Exit()
+
+
 @app.callback()
 def main_callback(
     ctx: typer.Context,
     verbose: bool = typer.Option(False, "-v", "--verbose", help="подробный вывод"),
+    version: bool = typer.Option(
+        False, "-V", "--version", callback=_print_version, is_eager=True, help="показать версию и выйти"
+    ),
 ):
     state["verbose"] = verbose
     if ctx.invoked_subcommand is None:

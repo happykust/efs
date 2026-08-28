@@ -22,7 +22,7 @@ _CONFIG_FILENAME = ".efs-config.json"
 
 def _step_scanner_choice() -> tuple[str, str] | None:
     """Шаг 1: Выбор инструмента и настройка — возвращает (tool, sbom_filename) или None."""
-    console.rule("[bold]Шаг 1/5: Выбор инструмента для генерации SBOM[/bold]")
+    console.rule("[bold]Шаг 1/6: Выбор инструмента для генерации SBOM[/bold]")
 
     tool = questionary.select(
         "Какой инструмент использовать?",
@@ -43,7 +43,7 @@ def _step_scanner_choice() -> tuple[str, str] | None:
 
 def _step_scan(tool: str, sbom_filename: str) -> bool:
     """Шаг 2: Генерация SBOM выбранным инструментом."""
-    console.rule(f"[bold]Шаг 2/5: Генерация SBOM ({tool})[/bold]")
+    console.rule(f"[bold]Шаг 2/6: Генерация SBOM ({tool})[/bold]")
 
     run_it = questionary.confirm(
         f"Запустить {tool} для генерации SBOM?",
@@ -68,7 +68,7 @@ def _step_scan(tool: str, sbom_filename: str) -> bool:
 
 def _step_config(sbom_filename: str, tool: str):
     """Шаг 3: Создание конфига (.efs-config.json)."""
-    console.rule("[bold]Шаг 3/5: Создание конфига[/bold]")
+    console.rule("[bold]Шаг 3/6: Создание конфига[/bold]")
 
     create_config = questionary.confirm(
         "Создать .efs-config.json (единый конфиг для компонентов)?",
@@ -113,7 +113,7 @@ def _iter_components_flat(components):
 
 def _step_vcs_refs(sbom_filename: str):
     """Шаг 4: Поиск VCS-ссылок и запись в конфиг."""
-    console.rule("[bold]Шаг 4/5: Поиск VCS-ссылок[/bold]")
+    console.rule("[bold]Шаг 4/6: Поиск VCS-ссылок[/bold]")
 
     find_refs = questionary.confirm(
         "Найти VCS-ссылки для компонентов через API?",
@@ -199,7 +199,7 @@ def _step_vcs_refs(sbom_filename: str):
 
 def _step_postprocess(sbom_filename: str):
     """Шаг 5: Постобработка SBOM."""
-    console.rule("[bold]Шаг 5/5: Постобработка SBOM[/bold]")
+    console.rule("[bold]Шаг 5/6: Постобработка SBOM[/bold]")
 
     run_postprocess = questionary.confirm(
         "Выполнить постобработку SBOM (очистка, ГОСТ-свойства, метаданные)?",
@@ -235,12 +235,13 @@ def _step_postprocess(sbom_filename: str):
     if manufacturer is None:
         return
 
+    default_output = f"{Path(sbom_filename).stem}.result.json"
     output_name = questionary.text(
         "Имя выходного файла:",
-        default=sbom_filename,
+        default=default_output,
     ).ask()
     if output_name is None:
-        return
+        return None
 
     from efs.postprocess import run as postprocess_run
 
@@ -265,6 +266,34 @@ def _step_postprocess(sbom_filename: str):
         postprocess_run(args)
 
     console.print(f"  [green]✓[/green] Результат сохранён в {output_name}")
+    return output_name
+
+
+def _step_check(result_filename: str):
+    """Шаг 6: Проверка готовности перечня."""
+    console.rule("[bold]Шаг 6/6: Проверка перечня[/bold]")
+
+    result_path = Path.cwd() / result_filename
+    if not result_path.is_file():
+        console.print(f"  [red]✗[/red] Файл {result_filename} не найден.")
+        return
+
+    from efs.checker import run as check_run
+
+    args = SimpleNamespace(
+        filename=str(result_path),
+        errors=10,
+        check_vcs=False,
+        check_vcs_leaf_only=False,
+        check_source_distribution=False,
+        format="oss",
+        verbose=False,
+    )
+    code = check_run(args)
+    if code == 0:
+        console.print("  [green]✓[/green] Перечень готов к сдаче")
+    else:
+        console.print("  Заполните оставшиеся поля в .efs-config.json и повторите постобработку")
 
 
 def run_wizard(verbose: bool = False):
@@ -290,7 +319,11 @@ def run_wizard(verbose: bool = False):
     _step_vcs_refs(sbom_filename)
 
     # Шаг 5
-    _step_postprocess(sbom_filename)
+    result_filename = _step_postprocess(sbom_filename)
+
+    # Шаг 6
+    if result_filename:
+        _step_check(result_filename)
 
     console.print()
     console.rule("[bold green]Готово![/bold green]")

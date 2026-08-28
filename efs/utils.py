@@ -367,6 +367,37 @@ def get_props(arr, name):
     return [elem.get("value", "") for elem in arr if elem.get("name", "") == name and elem.get("value", "")]
 
 
+_PLACEHOLDER_URLS = {"TODO", "", "sbom-updater_generated_placeholder:", None}
+
+_SOURCE_REF_LABELS = {
+    "vcs": "Репозиторий",
+    "source-distribution": "Дистрибутив исходного кода",
+}
+
+
+def source_reference(component):
+    """Сведения об источнике компонента для колонки отчётной формы.
+
+    Если ссылки на исходный код нет, но компонент поставляется в составе
+    сертифицированного СЗИ, указывается это средство — иначе в документе
+    остаётся пустая графа.
+    """
+    refs = component.get("externalReferences", [])
+    if isinstance(refs, list):
+        for ref_type, label in _SOURCE_REF_LABELS.items():
+            for ref in refs:
+                if not isinstance(ref, dict) or ref.get("type") != ref_type:
+                    continue
+                url = ref.get("url")
+                if url not in _PLACEHOLDER_URLS:
+                    return f"{label}: {url}"
+
+    provided_by = get_prop(component.get("properties", []), "GOST:provided_by")
+    if provided_by:
+        return f"Поставляется в составе сертифицированного СЗИ: {provided_by}"
+    return ""
+
+
 def combine_source_langs(sl1, sl2):
     if sl1 and not sl2 or not sl1 and sl2:
         return sl1 or sl2

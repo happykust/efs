@@ -16,6 +16,7 @@ from efs.utils import (
     is_archive_url,
     opener,
     parse_repo_url,
+    source_reference,
     validate_no_duplicate_keys,
 )
 
@@ -209,3 +210,35 @@ class TestIsArchiveUrl:
         result, errors = is_archive_url(FailingSession(), "https://example.org/x")
         assert result is False
         assert "нет сети" in errors
+
+
+class TestSourceReference:
+    def test_vcs_url_used(self):
+        comp = {"externalReferences": [{"type": "vcs", "url": "https://github.com/psf/requests"}]}
+        assert source_reference(comp) == "Репозиторий: https://github.com/psf/requests"
+
+    def test_source_distribution_used(self):
+        comp = {"externalReferences": [{"type": "source-distribution", "url": "https://example.org/x.tar.gz"}]}
+        assert "https://example.org/x.tar.gz" in source_reference(comp)
+
+    def test_certified_product_named_when_no_link(self):
+        """Компонент из состава СЗИ: вместо ссылки указывается само средство защиты."""
+        comp = {"properties": [{"name": "GOST:provided_by", "value": "КриптоПро CSP"}]}
+        assert source_reference(comp) == "Поставляется в составе сертифицированного СЗИ: КриптоПро CSP"
+
+    def test_link_wins_over_certified_product(self):
+        comp = {
+            "externalReferences": [{"type": "vcs", "url": "https://github.com/x/y"}],
+            "properties": [{"name": "GOST:provided_by", "value": "КриптоПро CSP"}],
+        }
+        assert source_reference(comp) == "Репозиторий: https://github.com/x/y"
+
+    def test_placeholder_link_ignored(self):
+        comp = {
+            "externalReferences": [{"type": "vcs", "url": "TODO"}],
+            "properties": [{"name": "GOST:provided_by", "value": "КриптоПро CSP"}],
+        }
+        assert "КриптоПро CSP" in source_reference(comp)
+
+    def test_empty_when_nothing_known(self):
+        assert source_reference({"name": "x"}) == ""

@@ -259,3 +259,55 @@ class TestReadinessSummary:
         checker.run(args_for(write_json("bom.json", make_bom([complete_component()]))))
         out = capsys.readouterr().out
         assert "GOST:source_langs" not in out
+
+
+class TestContainerReadiness:
+    def _container_bom(self, description=None):
+        component = gost_component("libssl", "3.0.0")
+        container = {
+            "type": "container",
+            "name": "app-image",
+            "version": "1.0.0",
+            "properties": [
+                {"name": "GOST:attack_surface", "value": "no"},
+                {"name": "GOST:security_function", "value": "no"},
+                {"name": "GOST:source_langs", "value": "C"},
+            ],
+            "components": [component],
+        }
+        if description is not None:
+            container["description"] = description
+        return make_bom([container])
+
+    def test_missing_purpose_reported(self, write_json, capsys):
+        """В форме перечня образов есть графа «Назначение» — она берётся из description."""
+        path = write_json("bom.json", self._container_bom())
+        checker.run(args_for(path, format="container"))
+        assert "назначение" in capsys.readouterr().out.lower()
+
+    def test_purpose_present_not_reported(self, write_json, capsys):
+        path = write_json("bom.json", self._container_bom("Образ прикладного сервиса"))
+        checker.run(args_for(path, format="container"))
+        assert "назначение" not in capsys.readouterr().out.lower()
+
+
+class TestCheckProgress:
+    def test_progress_shown_while_checking_links(self, write_json, capsys, monkeypatch):
+        """Проверка ссылок ходит в сеть и занимает минуты — молчать всё это время нельзя."""
+        monkeypatch.setattr(checker, "load_cache", lambda kind: {})
+        monkeypatch.setattr(checker, "dump_cache", lambda kind, data: None)
+        monkeypatch.setattr(checker, "check_repo", lambda url: (True, ""))
+
+        components = [complete_component(f"lib{i}") for i in range(3)]
+        for number, comp in enumerate(components):
+            comp["externalReferences"] = [{"type": "vcs", "url": f"https://github.com/example/lib{number}"}]
+        path = write_json("bom.json", make_bom(components))
+
+        checker.run(args_for(path, check_vcs=True))
+        out = capsys.readouterr().out
+        assert "проверка ссылок" in out.lower()
+
+    def test_no_progress_without_link_checks(self, write_json, capsys):
+        path = write_json("bom.json", make_bom([complete_component()]))
+        checker.run(args_for(path))
+        assert "проверка ссылок" not in capsys.readouterr().out.lower()

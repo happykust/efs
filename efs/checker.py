@@ -59,6 +59,8 @@ def check_readiness(bom, limit=0):
     for comp in _iter_components(bom.get("components", [])):
         title = f"{comp.get('name', '?')} {comp.get('version', '')}".strip()
         props = comp.get("properties", []) or []
+        if comp.get("type") == "container" and not comp.get("description", "").strip():
+            issues.append(("не указано назначение образа", f"{title}: не указано назначение (description)"))
         for prop in _REQUIRED_GOST_PROPS:
             if not get_prop(props, prop):
                 issues.append((f"отсутствует {prop}", f"{title}: отсутствует {prop}"))
@@ -238,7 +240,14 @@ def run(args):
                 future_to_url.update(
                     {executor.submit(is_archive_url, session, url): ("source-distribution", url) for url in src_list}
                 )
+                total_links = len(future_to_url)
+                done_links = 0
+                if total_links:
+                    print(f"Проверка ссылок: {total_links}")
                 for future in concurrent.futures.as_completed(future_to_url):
+                    done_links += 1
+                    if total_links > 20 and done_links % 20 == 0:
+                        print(f"  проверено {done_links} из {total_links}")
                     ref_type, url = future_to_url[future]
                     try:
                         if ref_type == "vcs":

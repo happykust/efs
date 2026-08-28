@@ -227,3 +227,31 @@ class _FakeRefFinder:
                 pass
 
         return Finder()
+
+
+class TestWizardSafety:
+    def test_output_name_differs_from_input(self, answers, tmp_path, monkeypatch):
+        """Имя по умолчанию не должно совпадать с входным — иначе исходный SBOM затирается."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "bom.json").write_text(json.dumps(make_bom([])), encoding="utf-8")
+        monkeypatch.setattr("efs.postprocess.run", lambda args: None)
+        answers.queue.extend([True, "Продукт", "1.0", "ООО", None])
+
+        init_wizard._step_postprocess("bom.json")
+
+        defaults = [message for kind, message in answers.asked if kind == "text"]
+        assert defaults  # вопросы задавались
+
+    def test_final_check_runs(self, answers, tmp_path, monkeypatch):
+        """Мастер должен заканчиваться проверкой — иначе непонятно, готов ли перечень."""
+        monkeypatch.chdir(tmp_path)
+        checked = []
+        monkeypatch.setattr(init_wizard, "_step_scan", lambda tool, name: None)
+        monkeypatch.setattr(init_wizard, "_step_config", lambda name, tool: None)
+        monkeypatch.setattr(init_wizard, "_step_vcs_refs", lambda name: None)
+        monkeypatch.setattr(init_wizard, "_step_postprocess", lambda name: "result.json")
+        monkeypatch.setattr(init_wizard, "_step_check", lambda name: checked.append(name))
+        answers.queue.extend(["cdxgen", "bom.json"])
+
+        init_wizard.run_wizard()
+        assert checked == ["result.json"]

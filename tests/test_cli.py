@@ -435,3 +435,46 @@ class TestReadinessExitCode:
             result = runner.invoke(app, command)
             assert result.exit_code != 0, command
             assert "Traceback" not in result.output, command
+
+
+class TestExportCertifiedProduct:
+    def _bom_path(self, tmp_path):
+        comp = make_component("crypto-module", "1.0", purl="pkg:generic/crypto@1.0")
+        comp["properties"] = [
+            {"name": "GOST:attack_surface", "value": "no"},
+            {"name": "GOST:security_function", "value": "yes"},
+            {"name": "GOST:source_langs", "value": "C"},
+            {"name": "GOST:provided_by", "value": "КриптоПро CSP"},
+        ]
+        path = tmp_path / "bom.json"
+        path.write_text(json.dumps(make_bom([comp]), ensure_ascii=False), encoding="utf-8")
+        return str(path)
+
+    def test_csv_names_certified_product(self, tmp_path):
+        """Графа источника не должна пустовать у компонента из состава СЗИ."""
+        out = tmp_path / "components.csv"
+        result = runner.invoke(app, ["export", "csv", self._bom_path(tmp_path), str(out)])
+        assert result.exit_code == 0, result.output
+        assert "КриптоПро CSP" in out.read_text(encoding="utf-8")
+
+    def test_odt_names_certified_product(self, tmp_path):
+        import zipfile
+
+        out = tmp_path / "components.odt"
+        result = runner.invoke(app, ["export", "odt", self._bom_path(tmp_path), str(out)])
+        assert result.exit_code == 0, result.output
+        with zipfile.ZipFile(out) as archive:
+            text = archive.read("content.xml").decode("utf-8")
+        assert "КриптоПро CSP" in text
+
+
+class TestVersionOption:
+    def test_version_printed(self):
+        from efs import __version__
+
+        result = runner.invoke(app, ["--version"])
+        assert result.exit_code == 0
+        assert __version__ in result.output
+
+    def test_version_short_flag(self):
+        assert runner.invoke(app, ["-V"]).exit_code == 0

@@ -397,7 +397,7 @@ def cmd_config_status(
     from rich.console import Console
     from rich.table import Table
 
-    from efc.config import load_config
+    from efc.config import guess_source_langs, load_config
 
     console = Console()
 
@@ -412,6 +412,7 @@ def cmd_config_status(
         return
 
     missing_vcs = []
+    missing_langs = []
     excluded = []
     has_vcs = []
     has_provided_by = []
@@ -422,6 +423,8 @@ def cmd_config_status(
         if entry.get("exclude"):
             excluded.append(purl)
             continue
+        if not entry.get("source_langs") and not guess_source_langs(purl):
+            missing_langs.append(purl)
         if entry.get("provided_by"):
             has_provided_by.append(purl)
         elif entry.get("vcs"):
@@ -437,11 +440,21 @@ def cmd_config_status(
     console.print(f"  [dim]Исключены (exclude):[/dim] {len(excluded)}")
     console.print(f"  [red]Не заполнены:[/red] {len(missing_vcs)}")
 
+    console.print(f"  [red]Без языка:[/red] {len(missing_langs)}")
+
     if missing_vcs:
         console.print()
         table = Table(title="Компоненты без VCS / provided_by", show_lines=False)
         table.add_column("purl", style="yellow")
         for purl in missing_vcs:
+            table.add_row(purl)
+        console.print(table)
+
+    if missing_langs:
+        console.print()
+        table = Table(title="Компоненты без языка (source_langs)", show_lines=False)
+        table.add_column("purl", style="yellow")
+        for purl in missing_langs:
             table.add_row(purl)
         console.print(table)
 

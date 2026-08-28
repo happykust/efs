@@ -4,7 +4,7 @@
 
 import csv
 
-from .utils import combine_source_langs, get_prop, opener
+from .utils import combine_source_langs, get_prop, get_props, opener
 
 
 def run(args):
@@ -53,7 +53,7 @@ def run(args):
         element = (
             component["name"],
             component["version"],
-            combine_source_langs(get_prop(props, "GOST:source_langs"), get_prop(props, "source_langs")),
+            combine_source_langs(", ".join(get_props(props, "GOST:source_langs")), get_prop(props, "source_langs")),
             str(special_function),
             urls,
         )
@@ -67,7 +67,9 @@ def run(args):
                     idx,
                     component["name"],
                     component["version"],
-                    combine_source_langs(get_prop(props, "GOST:source_langs"), get_prop(props, "source_langs")),
+                    combine_source_langs(
+                        ", ".join(get_props(props, "GOST:source_langs")), get_prop(props, "source_langs")
+                    ),
                     special_function,
                     urls,
                 ]

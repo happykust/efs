@@ -358,6 +358,15 @@ def get_prop(arr, name):
     return ""
 
 
+def get_props(arr, name):
+    """Все значения свойства с указанным именем.
+
+    ФСТЭК требует по отдельному свойству GOST:source_langs на каждый язык,
+    поэтому одного get_prop недостаточно.
+    """
+    return [elem.get("value", "") for elem in arr if elem.get("name", "") == name and elem.get("value", "")]
+
+
 def combine_source_langs(sl1, sl2):
     if sl1 and not sl2 or not sl1 and sl2:
         return sl1 or sl2

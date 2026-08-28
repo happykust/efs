@@ -9,7 +9,7 @@ from odf.style import TextProperties
 from odf.table import Table, TableCell, TableRow
 from odf.text import P
 
-from .utils import combine_source_langs, get_prop, opener
+from .utils import combine_source_langs, get_prop, get_props, opener
 
 _PKG_DIR = Path(__file__).parent.resolve()
 
@@ -51,7 +51,9 @@ def run(args):
                 element = (
                     comp.get("name", ""),
                     comp.get("version", ""),
-                    combine_source_langs(get_prop(props, "GOST:source_langs"), get_prop(props, "source_langs")),
+                    combine_source_langs(
+                        ", ".join(get_props(props, "GOST:source_langs")), get_prop(props, "source_langs")
+                    ),
                     get_prop(props, "GOST:attack_surface"),
                     get_prop(props, "GOST:security_function"),
                     get_ext_ref(comp.get("externalReferences", [])),

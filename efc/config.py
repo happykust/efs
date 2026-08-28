@@ -13,9 +13,32 @@ import json
 import logging
 from pathlib import Path
 
+from .utils import get_prop
+
 _CONFIG_FILENAME = ".sbom-config.json"
 
 _GOST_PROPS = ("GOST:attack_surface", "GOST:security_function")
+
+# Язык программирования, однозначно следующий из экосистемы пакета.
+# Дистрибутивные пакеты (deb, rpm) сюда не входят: там язык произвольный,
+# а перечень идёт регулятору — угадывать нельзя.
+_LANG_BY_PURL_TYPE = {
+    "pypi": "Python",
+    "npm": "JavaScript",
+    "maven": "Java",
+    "gradle": "Java",
+    "cargo": "Rust",
+    "golang": "Go",
+    "gem": "Ruby",
+    "nuget": "C#",
+    "composer": "PHP",
+    "cocoapods": "Objective-C",
+    "hex": "Elixir",
+    "cran": "R",
+    "pub": "Dart",
+    "conan": "C++",
+    "swift": "Swift",
+}
 _GOST_ALLOWED_VALUES = {"yes", "no", "indirect"}
 _GOST_DEFAULT_VALUE = "no"
 
@@ -24,6 +47,32 @@ def _purl_without_version(purl):
     """Убрать версию из purl: pkg:pypi/pytest@8.0.0 → pkg:pypi/pytest."""
     at = purl.find("@")
     return purl[:at] if at != -1 else purl
+
+
+def normalize_source_langs(value):
+    """Привести значение source_langs к списку языков.
+
+    Принимает список или строку; строка с запятыми раскладывается на отдельные
+    языки, потому что ФСТЭК требует по одному свойству GOST:source_langs на язык.
+    """
+    if isinstance(value, (list, tuple)):
+        items = value
+    elif isinstance(value, str):
+        items = value.split(",")
+    else:
+        return []
+    return [str(item).strip() for item in items if str(item).strip()]
+
+
+def guess_source_langs(purl):
+    """Определить язык программирования по типу purl.
+
+    Возвращает пустую строку, если по экосистеме язык не определяется однозначно.
+    """
+    if not isinstance(purl, str) or not purl.startswith("pkg:"):
+        return ""
+    purl_type = purl[4:].split("/", 1)[0].lower()
+    return _LANG_BY_PURL_TYPE.get(purl_type, "")
 
 
 def load_config(cli_path=None):
@@ -94,6 +143,7 @@ def get_gost_prop(config, purl, prop_name):
         "GOST:attack_surface": "attack_surface",
         "GOST:security_function": "security_function",
         "GOST:provided_by": "provided_by",
+        "GOST:source_langs": "source_langs",
     }
     config_key = key_map.get(prop_name, prop_name)
 
@@ -275,11 +325,12 @@ def init_config(bom, output_path=None, extra_boms=None):
     for k in removed:
         del components[k]
 
-    # Добавить новые purl с пустой записью
+    # Добавить новые purl, сразу подставив язык, следующий из экосистемы
     added = 0
     for purl in sorted(purls):
         if purl not in components:
-            components[purl] = {}
+            langs = guess_source_langs(purl)
+            components[purl] = {"source_langs": [langs]} if langs else {}
             added += 1
 
     # Записать
@@ -420,6 +471,21 @@ def apply_config_to_component(comp, config, gost_default="no", provided_by_defau
         return
 
     entry = _lookup_component(config, purl)
+
+    # source_langs: конфиг важнее эвристики, эвристика важнее defaults — иначе общий
+    # defaults подменил бы язык, выведенный из экосистемы. Работает и для компонентов,
+    # которых нет в конфиге: язык следует из purl.
+    entry_langs = normalize_source_langs(entry.get("source_langs")) if entry else []
+    langs = (
+        entry_langs
+        or normalize_source_langs(guess_source_langs(purl))
+        or normalize_source_langs(config.get("defaults", {}).get("source_langs"))
+    )
+    if langs:
+        existing_props = comp.setdefault("properties", [])
+        if entry_langs or not get_prop(existing_props, "GOST:source_langs"):
+            _set_langs(existing_props, langs)
+
     if entry is None and not config.get("defaults"):
         return
 
@@ -473,6 +539,12 @@ def apply_config_to_component(comp, config, gost_default="no", provided_by_defau
             refs[vcs_idx]["url"] = vcs_url
         else:
             refs.append({"type": "vcs", "url": vcs_url})
+
+
+def _set_langs(props, langs):
+    """Записать языки: по одному свойству GOST:source_langs на язык."""
+    props[:] = [p for p in props if p.get("name") != "GOST:source_langs"]
+    props.extend({"name": "GOST:source_langs", "value": lang} for lang in langs)
 
 
 def _set_prop(props, name, value):

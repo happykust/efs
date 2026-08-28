@@ -256,3 +256,54 @@ class TestCheckExitCodes:
     def test_bundled_example_is_ready(self):
         result = runner.invoke(app, ["check", "examples/example-sbom.json"])
         assert result.exit_code == 0, result.output
+
+
+class TestConfigStatusLanguages:
+    def test_reports_components_without_language(self, tmp_path, monkeypatch):
+        config_path = tmp_path / ".sbom-config.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "components": {
+                        "pkg:deb/debian/curl": {"vcs": "https://salsa.debian.org/debian/curl"},
+                        "pkg:pypi/requests": {"vcs": "https://github.com/psf/requests"},
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        result = runner.invoke(app, ["config", "status", "--config", str(config_path)])
+        assert result.exit_code == 0, result.output
+        assert "pkg:deb/debian/curl" in result.output
+        assert "язык" in result.output.lower()
+
+
+class TestExportMultipleLanguages:
+    def _bom_path(self, tmp_path):
+        comp = make_component("cryptography", "42.0.0")
+        comp["properties"] = [
+            {"name": "GOST:attack_surface", "value": "no"},
+            {"name": "GOST:security_function", "value": "yes"},
+            {"name": "GOST:source_langs", "value": "Python"},
+            {"name": "GOST:source_langs", "value": "C"},
+        ]
+        path = tmp_path / "bom.json"
+        path.write_text(json.dumps(make_bom([comp]), ensure_ascii=False), encoding="utf-8")
+        return str(path)
+
+    def test_csv_lists_every_language(self, tmp_path):
+        out = tmp_path / "components.csv"
+        result = runner.invoke(app, ["export", "csv", self._bom_path(tmp_path), str(out)])
+        assert result.exit_code == 0, result.output
+        assert "Python, C" in out.read_text(encoding="utf-8")
+
+    def test_odt_lists_every_language(self, tmp_path):
+        out = tmp_path / "components.odt"
+        result = runner.invoke(app, ["export", "odt", self._bom_path(tmp_path), str(out)])
+        assert result.exit_code == 0, result.output
+
+        import zipfile
+
+        with zipfile.ZipFile(out) as archive:
+            text = archive.read("content.xml").decode("utf-8")
+        assert "Python, C" in text

@@ -18,6 +18,7 @@ from efc.config import (
     get_pedigree,
     get_scanner_config,
     get_vcs,
+    guess_source_langs,
     init_config,
     is_excluded,
     load_config,
@@ -25,6 +26,11 @@ from efc.config import (
 )
 
 from .conftest import make_bom, make_component
+
+
+def _langs_of(comp):
+    """Все языки компонента в порядке следования свойств."""
+    return [p["value"] for p in comp.get("properties", []) if p["name"] == "GOST:source_langs"]
 
 
 class TestLookup:
@@ -227,3 +233,130 @@ class TestMigrateConfig:
         assert result["components"]["pkg:pypi/requests"]["vcs"] == "https://github.com/psf/requests"
         assert result["components"]["pkg:pypi/requests"]["attack_surface"] == "yes"
         assert result["components"]["pkg:npm/left-pad"]["exclude"] is True
+
+
+class TestSourceLangs:
+    @pytest.mark.parametrize(
+        ("purl", "expected"),
+        [
+            ("pkg:pypi/requests@2.32.5", "Python"),
+            ("pkg:npm/lodash@4.17.21", "JavaScript"),
+            ("pkg:npm/%40babel/runtime@7.9.0", "JavaScript"),
+            ("pkg:maven/org.slf4j/slf4j-api@2.0.9", "Java"),
+            ("pkg:cargo/serde@1.0.0", "Rust"),
+            ("pkg:golang/github.com/gin-gonic/gin@1.9.1", "Go"),
+            ("pkg:gem/rails@7.1.0", "Ruby"),
+            ("pkg:nuget/Newtonsoft.Json@13.0.3", "C#"),
+            ("pkg:composer/symfony/console@6.4.0", "PHP"),
+        ],
+    )
+    def test_language_guessed_from_ecosystem(self, purl, expected):
+        assert guess_source_langs(purl) == expected
+
+    @pytest.mark.parametrize(
+        "purl",
+        [
+            "pkg:deb/debian/curl@7.88.1",
+            "pkg:rpm/fedora/curl@8.0.1",
+            "pkg:generic/internal-lib@1.0",
+            "не-purl",
+            "",
+        ],
+    )
+    def test_language_not_guessed_when_ambiguous(self, purl):
+        """Для дистрибутивных пакетов язык не выводится — врать в документе для регулятора нельзя."""
+        assert guess_source_langs(purl) == ""
+
+    def test_value_from_config_used(self):
+        cfg = {"components": {"pkg:pypi/cryptography": {"source_langs": "Python"}}}
+        comp = make_component("cryptography", "42.0.0")
+        apply_config_to_component(comp, cfg)
+        assert _langs_of(comp) == ["Python"]
+
+    def test_each_language_becomes_separate_property(self):
+        """ФСТЭК требует отдельное свойство на каждый язык, а не список через запятую."""
+        cfg = {"components": {"pkg:pypi/cryptography": {"source_langs": ["Python", "C", "Rust"]}}}
+        comp = make_component("cryptography", "42.0.0")
+        apply_config_to_component(comp, cfg)
+        assert _langs_of(comp) == ["Python", "C", "Rust"]
+        assert [p["name"] for p in comp["properties"]].count("GOST:source_langs") == 3
+
+    def test_comma_separated_string_split_into_properties(self):
+        """Строка с запятыми — привычная запись; раскладывается на отдельные свойства."""
+        cfg = {"components": {"pkg:pypi/pillow": {"source_langs": "Python, C"}}}
+        comp = make_component("pillow", "10.0.0")
+        apply_config_to_component(comp, cfg)
+        assert _langs_of(comp) == ["Python", "C"]
+
+    def test_config_replaces_all_previous_languages(self):
+        comp = make_component(
+            "pillow",
+            "10.0.0",
+            properties=[
+                {"name": "GOST:source_langs", "value": "устарело"},
+                {"name": "GOST:source_langs", "value": "тоже устарело"},
+            ],
+        )
+        apply_config_to_component(comp, {"components": {"pkg:pypi/pillow": {"source_langs": ["Python", "C"]}}})
+        assert _langs_of(comp) == ["Python", "C"]
+
+    def test_guessed_when_config_silent(self):
+        comp = make_component("requests", "2.32.5")
+        apply_config_to_component(comp, {"defaults": {}})
+        assert _langs_of(comp) == ["Python"]
+
+    def test_config_wins_over_guess(self):
+        cfg = {"components": {"pkg:pypi/pillow": {"source_langs": "C"}}}
+        comp = make_component("pillow", "10.0.0")
+        apply_config_to_component(comp, cfg)
+        assert _langs_of(comp) == ["C"]
+
+    def test_defaults_used_only_where_guess_fails(self):
+        """defaults закрывает deb/rpm, но не подменяет язык, выведенный из экосистемы."""
+        cfg = {"defaults": {"source_langs": "C"}}
+        deb = make_component("curl", "7.88.1", purl="pkg:deb/debian/curl@7.88.1")
+        npm = make_component("lodash", "4.17.21", purl="pkg:npm/lodash@4.17.21")
+        apply_config_to_component(deb, cfg)
+        apply_config_to_component(npm, cfg)
+        assert _langs_of(deb) == ["C"]
+        assert _langs_of(npm) == ["JavaScript"]
+
+    def test_existing_value_not_overwritten_by_guess(self):
+        comp = make_component("requests", "2.32.5", properties=[{"name": "GOST:source_langs", "value": "Python, Rust"}])
+        apply_config_to_component(comp, {})
+        props = {p["name"]: p["value"] for p in comp["properties"]}
+        assert props["GOST:source_langs"] == "Python, Rust"
+
+    def test_explicit_config_overwrites_existing_value(self):
+        cfg = {"components": {"pkg:pypi/requests": {"source_langs": "Python"}}}
+        comp = make_component("requests", "2.32.5", properties=[{"name": "GOST:source_langs", "value": "устарело"}])
+        apply_config_to_component(comp, cfg)
+        props = {p["name"]: p["value"] for p in comp["properties"]}
+        assert props["GOST:source_langs"] == "Python"
+
+    def test_nothing_written_when_unknown(self):
+        comp = make_component("curl", "7.88.1", purl="pkg:deb/debian/curl@7.88.1")
+        apply_config_to_component(comp, {})
+        assert all(p["name"] != "GOST:source_langs" for p in comp.get("properties", []))
+
+    def test_init_config_fills_guessed_language(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        bom = make_bom(
+            [
+                make_component("requests", "2.32.5"),
+                make_component("lodash", "4.17.21", purl="pkg:npm/lodash@4.17.21"),
+                make_component("curl", "7.88.1", purl="pkg:deb/debian/curl@7.88.1"),
+            ]
+        )
+        init_config(bom)
+        components = json.loads((tmp_path / ".sbom-config.json").read_text(encoding="utf-8"))["components"]
+        assert components["pkg:pypi/requests"]["source_langs"] == ["Python"]
+        assert components["pkg:npm/lodash"]["source_langs"] == ["JavaScript"]
+        assert "source_langs" not in components["pkg:deb/debian/curl"]
+
+    def test_init_config_keeps_manual_language(self, tmp_path, monkeypatch, write_json):
+        write_json(".sbom-config.json", {"components": {"pkg:pypi/requests": {"source_langs": ["Python", "C"]}}})
+        monkeypatch.chdir(tmp_path)
+        init_config(make_bom([make_component("requests", "2.32.5")]))
+        components = json.loads((tmp_path / ".sbom-config.json").read_text(encoding="utf-8"))["components"]
+        assert components["pkg:pypi/requests"]["source_langs"] == ["Python", "C"]

@@ -111,19 +111,32 @@ def parse_repo_url(url):
 def check_repo(url):
     result = False
     exc_list = []
+    _no_prompt_env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0', 'GIT_ASKPASS': ''}
     try:
-        res0 = subprocess.run(f'git ls-remote {url}', shell=True, capture_output=True, text=True, timeout=SP_TIMEOUT)
+        res0 = subprocess.run(f'git ls-remote {url}', shell=True, capture_output=True, text=True, timeout=SP_TIMEOUT, env=_no_prompt_env)
         if res0.returncode != 0:
             exc_list.append(f'ERROR/GIT: {res0.stderr}')
             result = False
         else:
             result = True
+    except subprocess.TimeoutExpired:
+        try:
+            check_url = url[:-4] if url.endswith('.git') else url
+            resp = requests.head(check_url, timeout=SP_TIMEOUT, allow_redirects=True)
+            if resp.status_code == 200:
+                result = True
+            else:
+                exc_list.append(f'ERROR/GIT: git ls-remote timed out, HTTP-проверка вернула код {resp.status_code}')
+                result = False
+        except Exception as e2:
+            exc_list.append(f'ERROR/GIT: git ls-remote timed out, HTTP-фоллбэк не сработал: {e2}')
+            result = False
     except Exception as e:
         exc_list.append(f'ERROR/GIT: {e}')
         result = False
     if not result:
         try:
-            res1 = subprocess.run(f'svn ls {url}', shell=True, capture_output=True, text=True, timeout=SP_TIMEOUT)
+            res1 = subprocess.run(f'svn ls --non-interactive {url}', shell=True, capture_output=True, text=True, timeout=SP_TIMEOUT)
             if res1.returncode != 0:
                 exc_list.append(f'ERROR/SVN: {res1.stderr}')
                 result = False
@@ -134,7 +147,7 @@ def check_repo(url):
             result = False
     if not result:
         try:
-            res2 = subprocess.run(f'hg identify {url}', shell=True, capture_output=True, text=True, timeout=SP_TIMEOUT)
+            res2 = subprocess.run(f'hg identify --noninteractive {url}', shell=True, capture_output=True, text=True, timeout=SP_TIMEOUT)
             if res2.returncode != 0:
                 exc_list.append(f'ERROR/HG: {res2.stderr}')
                 result = False

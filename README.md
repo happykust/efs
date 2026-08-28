@@ -1,5 +1,7 @@
 # efc — Easy FSTEC Certification
 
+[![CI](https://github.com/happykust/efc/actions/workflows/ci.yml/badge.svg)](https://github.com/happykust/efc/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/efc.svg)](https://pypi.org/project/efc/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 
@@ -412,6 +414,10 @@ uv run pytest        # запустить тесты
 uv run ruff check .  # линтер
 uv run ruff format . # форматирование
 ```
+
+Пример готового перечня — `examples/example-sbom.json`; он проходит `efc check` и годится как образец заполнения ГОСТ-свойств.
+
+Как оформлять изменения, писать тесты и выпускать релизы — в [CONTRIBUTING.md](CONTRIBUTING.md). Об уязвимостях сообщайте по процедуре из [SECURITY.md](SECURITY.md), не через публичный issue. Правила общения — в [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 ## Происхождение
 

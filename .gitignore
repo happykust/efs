@@ -1,2 +1,35 @@
-__pycache__
-venv
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+
+# Сборка и дистрибутивы
+build/
+dist/
+
+# Виртуальные окружения
+venv/
+.venv/
+env/
+
+# Тесты и покрытие
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.ruff_cache/
+.mypy_cache/
+
+# IDE
+.idea/
+.vscode/
+
+# Локальные артефакты SBOM и конфиги
+*.sbom.json
+bom.json
+.sbom-config.json
+.purl_to_vcs.json
+.purl_to_gost.json
+.purl_exclude.json
+.cdxgenrc

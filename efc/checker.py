@@ -10,6 +10,8 @@ from pathlib import Path
 import re
 from referencing import Registry, Resource
 
+from requests import Session
+
 from .utils import check_repo, opener, parse_repo_url, load_cache, dump_cache, is_archive_url, get_prop
 
 _PKG_DIR = Path(__file__).parent.resolve()
@@ -150,9 +152,10 @@ def run(args):
                                 url = ref.get('url', '')
                                 if not url in src_results:
                                     src_list.add(url)
+            session = Session()
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 future_to_url = {executor.submit(check_repo, url): ('vcs', url) for url in refs_to_check.keys()}
-                future_to_url.update({executor.submit(is_archive_url, url): ('source-distribution', url) for url in src_list})
+                future_to_url.update({executor.submit(is_archive_url, session, url): ('source-distribution', url) for url in src_list})
                 for future in concurrent.futures.as_completed(future_to_url):
                     ref_type, url = future_to_url[future]
                     try:
@@ -161,6 +164,7 @@ def run(args):
                         elif ref_type == 'source-distribution':
                             src_results[url], ex_str = future.result()
                     except Exception as exc:
+                        count += 1
                         print('ERROR: %r generated an exception: %s' % (url, exc))
                     else:
                         if ref_type == 'vcs' and not repo_dict[url]:

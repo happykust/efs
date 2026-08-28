@@ -5,7 +5,7 @@
 """
 Модуль запуска SBOM-сканеров (cdxgen, trivy).
 
-Читает настройки из секции 'scanner' конфига .sbom-config.json
+Читает настройки из секции 'scanner' конфига .efs-config.json
 и запускает выбранный инструмент через subprocess.
 """
 

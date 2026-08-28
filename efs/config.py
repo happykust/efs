@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Единый конфиг .sbom-config.json для управления обработкой компонентов SBOM.
+Единый конфиг .efs-config.json для управления обработкой компонентов SBOM.
 
 Объединяет функциональность .purl_to_vcs.json, .purl_to_gost.json и .purl_exclude.json
 в один файл с поддержкой pedigree (CycloneDX) и manufacturer per-component.
@@ -15,7 +15,8 @@ from pathlib import Path
 
 from .utils import get_prop
 
-_CONFIG_FILENAME = ".sbom-config.json"
+_CONFIG_FILENAME = ".efs-config.json"
+_LEGACY_CONFIG_FILENAME = ".sbom-config.json"
 
 _GOST_PROPS = ("GOST:attack_surface", "GOST:security_function")
 
@@ -80,8 +81,9 @@ def load_config(cli_path=None):
 
     Порядок поиска:
     1. Явно указанный через CLI (--config)
-    2. .sbom-config.json в текущей рабочей директории
-    3. None (конфиг не используется)
+    2. .efs-config.json в текущей рабочей директории
+    3. .sbom-config.json — прежнее имя, поддерживается для совместимости
+    4. None (конфиг не используется)
     """
     if cli_path:
         p = Path(cli_path)
@@ -92,12 +94,13 @@ def load_config(cli_path=None):
             return data
         raise FileNotFoundError(f"Указанный файл конфига не найден: {cli_path}")
 
-    cwd_file = Path.cwd() / _CONFIG_FILENAME
-    if cwd_file.is_file():
-        with open(cwd_file, encoding="utf-8") as f:
-            data = json.load(f)
-        logging.info(f"используется конфиг: {cwd_file}")
-        return data
+    for filename in (_CONFIG_FILENAME, _LEGACY_CONFIG_FILENAME):
+        cwd_file = Path.cwd() / filename
+        if cwd_file.is_file():
+            with open(cwd_file, encoding="utf-8") as f:
+                data = json.load(f)
+            logging.info(f"используется конфиг: {cwd_file}")
+            return data
 
     return None
 
@@ -274,7 +277,7 @@ def _iter_components_flat(components):
 
 
 def init_config(bom, output_path=None, extra_boms=None):
-    """Сгенерировать .sbom-config.json из SBOM.
+    """Сгенерировать .efs-config.json из SBOM.
 
     Создаёт конфиг со всеми purl (без версий) из BOM,
     с дефолтными значениями GOST-свойств.
@@ -294,10 +297,16 @@ def init_config(bom, output_path=None, extra_boms=None):
             if purl:
                 purls.add(_purl_without_version(purl))
 
-    # Загрузить существующий конфиг
+    # Загрузить существующий конфиг: сначала по целевому пути, затем по прежнему имени
     existing = {}
-    if output_path.is_file() and output_path.stat().st_size > 0:
-        with open(output_path, encoding="utf-8") as f:
+    source = output_path
+    if not source.is_file() and output_path.name == _CONFIG_FILENAME:
+        legacy = output_path.with_name(_LEGACY_CONFIG_FILENAME)
+        if legacy.is_file():
+            source = legacy
+            print(f"  Настройки перенесены из {legacy.name} в {_CONFIG_FILENAME}")
+    if source.is_file() and source.stat().st_size > 0:
+        with open(source, encoding="utf-8") as f:
             existing = json.load(f)
 
     # Сохранить metadata
@@ -352,7 +361,7 @@ def init_config(bom, output_path=None, extra_boms=None):
 
 def migrate_config(vcs_path=None, gost_path=None, exclude_path=None, output_path=None):
     """Мигрировать из старых файлов (.purl_to_vcs.json, .purl_to_gost.json, .purl_exclude.json)
-    в единый .sbom-config.json.
+    в единый .efs-config.json.
     """
     if output_path is None:
         output_path = Path.cwd() / _CONFIG_FILENAME

@@ -37,7 +37,7 @@ jobs:
           enable-cache: true
           python-version: ${{ matrix.python-version }}
       - run: uv sync --locked
-      - run: uv run pytest -q --cov=efc --cov-report=term-missing
+      - run: uv run pytest -q --cov=efs --cov-report=term-missing
 
   build:
     name: Сборка пакета
@@ -56,12 +56,12 @@ jobs:
           import glob, sys, zipfile
 
           required = (
-              "efc/schemas/schema.json",
-              "efc/schemas/schema_container.json",
-              "efc/additional_schemas/spdx.schema.json",
-              "efc/additional_schemas/jsf-0.82.schema.json",
-              "efc/odt_templates/template.odt",
-              "efc/odt_templates/template_container.odt",
+              "efs/schemas/schema.json",
+              "efs/schemas/schema_container.json",
+              "efs/additional_schemas/spdx.schema.json",
+              "efs/additional_schemas/jsf-0.82.schema.json",
+              "efs/odt_templates/template.odt",
+              "efs/odt_templates/template_container.odt",
           )
           names = set(zipfile.ZipFile(glob.glob("dist/*.whl")[0]).namelist())
           missing = [item for item in required if item not in names]
@@ -89,6 +89,6 @@ jobs:
         run: |
           uv venv
           uv pip install dist/*.whl
-          uv run efc --help
-          uv run efc check examples/example-sbom.json
-          uv run efc export csv examples/example-sbom.json /tmp/components.csv
+          uv run efs --help
+          uv run efs check examples/example-sbom.json
+          uv run efs export csv examples/example-sbom.json /tmp/components.csv

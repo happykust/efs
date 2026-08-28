@@ -8,7 +8,7 @@ import json
 import pytest
 from typer.testing import CliRunner
 
-from efc.cli import app
+from efs.cli import app
 
 from .conftest import make_bom, make_component
 
@@ -94,7 +94,7 @@ class TestPostprocess:
             assert "GOST:security_function" in names
 
     def test_config_applied(self, bom_file, tmp_path, monkeypatch):
-        config_path = tmp_path / ".sbom-config.json"
+        config_path = tmp_path / ".efs-config.json"
         config_path.write_text(
             json.dumps(
                 {
@@ -185,13 +185,13 @@ class TestConfigCommands:
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(app, ["config", "migrate"])
         assert result.exit_code == 0, result.output
-        config = json.loads((tmp_path / ".sbom-config.json").read_text(encoding="utf-8"))
+        config = json.loads((tmp_path / ".efs-config.json").read_text(encoding="utf-8"))
         assert config["components"]["pkg:pypi/requests"]["vcs"] == "https://github.com/psf/requests"
 
 
 class TestScan:
     def test_uses_tool_from_config(self, tmp_path, monkeypatch):
-        config_path = tmp_path / ".sbom-config.json"
+        config_path = tmp_path / ".efs-config.json"
         config_path.write_text(
             json.dumps({"scanner": {"tool": "trivy", "target": ".", "output": "bom.json"}}), encoding="utf-8"
         )
@@ -201,18 +201,18 @@ class TestScan:
             captured.update(tool=tool, target=target, output=output)
             return True
 
-        monkeypatch.setattr("efc.scanner.run_scan", fake_run_scan)
+        monkeypatch.setattr("efs.scanner.run_scan", fake_run_scan)
         result = runner.invoke(app, ["scan", "--config", str(config_path)])
         assert result.exit_code == 0, result.output
         assert captured["tool"] == "trivy"
 
     def test_cli_option_overrides_config(self, tmp_path, monkeypatch):
-        config_path = tmp_path / ".sbom-config.json"
+        config_path = tmp_path / ".efs-config.json"
         config_path.write_text(json.dumps({"scanner": {"tool": "trivy"}}), encoding="utf-8")
         captured = {}
 
         monkeypatch.setattr(
-            "efc.scanner.run_scan",
+            "efs.scanner.run_scan",
             lambda tool, target, output, options=None: captured.update(tool=tool) or True,
         )
         result = runner.invoke(app, ["scan", "--tool", "cdxgen", "--config", str(config_path)])
@@ -260,7 +260,7 @@ class TestCheckExitCodes:
 
 class TestConfigStatusLanguages:
     def test_reports_components_without_language(self, tmp_path, monkeypatch):
-        config_path = tmp_path / ".sbom-config.json"
+        config_path = tmp_path / ".efs-config.json"
         config_path.write_text(
             json.dumps(
                 {

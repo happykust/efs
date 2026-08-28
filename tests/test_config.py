@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-from efc.config import (
+from efs.config import (
     apply_config_to_component,
     config_to_purl_exclude,
     config_to_purl_to_gost,
@@ -200,7 +200,7 @@ class TestInitConfig:
         monkeypatch.chdir(tmp_path)
         bom = make_bom([make_component("requests", "2.32.5"), make_component("urllib3", "2.2.1")])
         init_config(bom)
-        result = json.loads((tmp_path / ".sbom-config.json").read_text(encoding="utf-8"))
+        result = json.loads((tmp_path / ".efs-config.json").read_text(encoding="utf-8"))
         assert set(result["components"]) == {"pkg:pypi/requests", "pkg:pypi/urllib3"}
 
     def test_merges_extra_boms(self, tmp_path, monkeypatch):
@@ -208,14 +208,14 @@ class TestInitConfig:
         first = make_bom([make_component("requests", "2.32.5")])
         second = make_bom([make_component("flask", "3.0.0")])
         init_config(first, extra_boms=[second])
-        result = json.loads((tmp_path / ".sbom-config.json").read_text(encoding="utf-8"))
+        result = json.loads((tmp_path / ".efs-config.json").read_text(encoding="utf-8"))
         assert set(result["components"]) == {"pkg:pypi/requests", "pkg:pypi/flask"}
 
     def test_preserves_existing_settings(self, tmp_path, monkeypatch, write_json):
-        write_json(".sbom-config.json", {"components": {"pkg:pypi/requests": {"vcs": "https://example.org/repo"}}})
+        write_json(".efs-config.json", {"components": {"pkg:pypi/requests": {"vcs": "https://example.org/repo"}}})
         monkeypatch.chdir(tmp_path)
         init_config(make_bom([make_component("requests", "2.32.5"), make_component("flask", "3.0.0")]))
-        result = json.loads((tmp_path / ".sbom-config.json").read_text(encoding="utf-8"))
+        result = json.loads((tmp_path / ".efs-config.json").read_text(encoding="utf-8"))
         assert result["components"]["pkg:pypi/requests"]["vcs"] == "https://example.org/repo"
         assert "pkg:pypi/flask" in result["components"]
 
@@ -229,7 +229,7 @@ class TestMigrateConfig:
 
         migrate_config()
 
-        result = json.loads((tmp_path / ".sbom-config.json").read_text(encoding="utf-8"))
+        result = json.loads((tmp_path / ".efs-config.json").read_text(encoding="utf-8"))
         assert result["components"]["pkg:pypi/requests"]["vcs"] == "https://github.com/psf/requests"
         assert result["components"]["pkg:pypi/requests"]["attack_surface"] == "yes"
         assert result["components"]["pkg:npm/left-pad"]["exclude"] is True
@@ -349,14 +349,45 @@ class TestSourceLangs:
             ]
         )
         init_config(bom)
-        components = json.loads((tmp_path / ".sbom-config.json").read_text(encoding="utf-8"))["components"]
+        components = json.loads((tmp_path / ".efs-config.json").read_text(encoding="utf-8"))["components"]
         assert components["pkg:pypi/requests"]["source_langs"] == ["Python"]
         assert components["pkg:npm/lodash"]["source_langs"] == ["JavaScript"]
         assert "source_langs" not in components["pkg:deb/debian/curl"]
 
     def test_init_config_keeps_manual_language(self, tmp_path, monkeypatch, write_json):
-        write_json(".sbom-config.json", {"components": {"pkg:pypi/requests": {"source_langs": ["Python", "C"]}}})
+        write_json(".efs-config.json", {"components": {"pkg:pypi/requests": {"source_langs": ["Python", "C"]}}})
         monkeypatch.chdir(tmp_path)
         init_config(make_bom([make_component("requests", "2.32.5")]))
-        components = json.loads((tmp_path / ".sbom-config.json").read_text(encoding="utf-8"))["components"]
+        components = json.loads((tmp_path / ".efs-config.json").read_text(encoding="utf-8"))["components"]
         assert components["pkg:pypi/requests"]["source_langs"] == ["Python", "C"]
+
+
+class TestConfigFilename:
+    def test_new_name_found_in_cwd(self, tmp_path, monkeypatch, write_json):
+        write_json(".efs-config.json", {"components": {"pkg:pypi/x": {}}})
+        monkeypatch.chdir(tmp_path)
+        assert load_config() == {"components": {"pkg:pypi/x": {}}}
+
+    def test_legacy_name_still_works(self, tmp_path, monkeypatch, write_json):
+        """Проекты со старым .sbom-config.json продолжают работать."""
+        write_json(".sbom-config.json", {"components": {"pkg:pypi/legacy": {}}})
+        monkeypatch.chdir(tmp_path)
+        assert load_config() == {"components": {"pkg:pypi/legacy": {}}}
+
+    def test_new_name_wins_over_legacy(self, tmp_path, monkeypatch, write_json):
+        write_json(".efs-config.json", {"components": {"pkg:pypi/new": {}}})
+        write_json(".sbom-config.json", {"components": {"pkg:pypi/legacy": {}}})
+        monkeypatch.chdir(tmp_path)
+        assert load_config() == {"components": {"pkg:pypi/new": {}}}
+
+    def test_init_writes_new_name(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        init_config(make_bom([make_component("requests", "2.32.5")]))
+        assert (tmp_path / ".efs-config.json").is_file()
+
+    def test_init_carries_legacy_settings_over(self, tmp_path, monkeypatch, write_json):
+        write_json(".sbom-config.json", {"components": {"pkg:pypi/requests": {"attack_surface": "yes"}}})
+        monkeypatch.chdir(tmp_path)
+        init_config(make_bom([make_component("requests", "2.32.5")]))
+        result = json.loads((tmp_path / ".efs-config.json").read_text(encoding="utf-8"))
+        assert result["components"]["pkg:pypi/requests"]["attack_surface"] == "yes"

@@ -7,15 +7,15 @@ from types import SimpleNamespace
 import typer
 
 app = typer.Typer(
-    name="efc",
-    help="efc — Easy FSTEC Certification: генерация, проверка и обогащение SBOM (CycloneDX + ГОСТ)",
+    name="efs",
+    help="efs — Easy FSTEC SBOMs: генерация, проверка и обогащение SBOM под ФСТЭК (CycloneDX + ГОСТ)",
     rich_markup_mode="rich",
     invoke_without_command=True,
 )
 export_app = typer.Typer(name="export", help="Экспорт SBOM в различные форматы", invoke_without_command=True)
 app.add_typer(export_app)
 config_app = typer.Typer(
-    name="config", help="Управление единым конфигом .sbom-config.json", invoke_without_command=True
+    name="config", help="Управление единым конфигом .efs-config.json", invoke_without_command=True
 )
 app.add_typer(config_app)
 
@@ -60,7 +60,7 @@ def cmd_check(
     ),
     format_: str = typer.Option("oss", "--format", help="oss | container; по умолчанию oss"),
 ):
-    from efc.checker import run
+    from efs.checker import run
 
     args = SimpleNamespace(
         filename=filename,
@@ -89,15 +89,13 @@ def cmd_update(
     purl_to_vcs: str | None = typer.Option(None, "--purl-to-vcs", help="путь к файлу маппинга purl→vcs"),
     gost: bool = typer.Option(False, "--gost", help="установить GOST-свойства из файла маппинга"),
     purl_to_gost: str | None = typer.Option(None, "--purl-to-gost", help="путь к файлу маппинга purl→GOST"),
-    init_gost_map: bool = typer.Option(False, "--init-gost-map", help="сгенерировать шаблон .purl_to_gost.json"),
-    init_purl_map: bool = typer.Option(False, "--init-purl-map", help="сгенерировать шаблон .purl_to_vcs.json"),
     extra_input: list[str] | None = typer.Option(
-        None, "-i", "--extra-input", help="дополнительные SBOM-файлы для --init-purl-map / --init-gost-map"
+        None, "-i", "--extra-input", help="дополнительные SBOM-файлы"
     ),
     fix_all: bool = typer.Option(False, "--fix-all", help="применить все опции"),
     update: str | None = typer.Option(None, "--update", metavar="OLD_SBOM", help="предыдущая версия перечня"),
 ):
-    from efc.updater import run
+    from efs.updater import run
 
     args = SimpleNamespace(
         input=input_,
@@ -110,8 +108,6 @@ def cmd_update(
         purl_to_vcs=purl_to_vcs,
         gost=gost,
         purl_to_gost=purl_to_gost,
-        init_gost_map=init_gost_map,
-        init_purl_map=init_purl_map,
         extra_input=extra_input or [],
         fix_all=fix_all,
         update=update,
@@ -130,7 +126,7 @@ def cmd_merge(
     app_version: str = typer.Option(..., "--app-version", help="версия продукта"),
     manufacturer: str = typer.Option(..., "--manufacturer", help="организация-изготовитель"),
 ):
-    from efc.unifier import run
+    from efs.unifier import run
 
     if len(files) < 2:
         typer.echo("ошибка: необходимо указать хотя бы один входной файл и один выходной файл", err=True)
@@ -155,7 +151,7 @@ def cmd_export_csv(
     input_: str = typer.Argument(..., metavar="INPUT", help="входной файл CycloneDX JSON"),
     output: str = typer.Argument(..., help="выходной CSV файл"),
 ):
-    from efc.to_csv import run
+    from efs.to_csv import run
 
     args = SimpleNamespace(
         input=input_,
@@ -175,7 +171,7 @@ def cmd_export_odt(
     pa_fb_ontop: bool = typer.Option(False, "-t", "--pa-fb-ontop", help="помещение записей «ПА» и «ФБ» в топ таблицы"),
     format_: str = typer.Option("oss", "--format", help="oss | container; по умолчанию oss"),
 ):
-    from efc.to_odt import run
+    from efs.to_odt import run
 
     args = SimpleNamespace(
         input=input_,
@@ -210,15 +206,12 @@ def cmd_postprocess(
     purl_exclude: str | None = typer.Option(
         None, "--purl-exclude", help="путь к файлу списка purl для исключения (.purl_exclude.json)"
     ),
-    init_exclude: bool = typer.Option(
-        False, "--init-exclude", help="сгенерировать шаблон .purl_exclude.json из входного BOM и выйти"
-    ),
     pretty: bool = typer.Option(True, "--pretty/--no-pretty", help="форматировать JSON"),
     config: str | None = typer.Option(
-        None, "--config", help="путь к .sbom-config.json (по умолчанию ищется в текущей директории)"
+        None, "--config", help="путь к .efs-config.json (по умолчанию ищется в текущей директории)"
     ),
 ):
-    from efc.postprocess import run
+    from efs.postprocess import run
 
     if gost_default not in ("yes", "no", "indirect"):
         typer.echo("ошибка: --gost-default должен быть yes, no или indirect", err=True)
@@ -237,7 +230,6 @@ def cmd_postprocess(
         purl_to_vcs=purl_to_vcs,
         purl_to_gost=purl_to_gost,
         purl_exclude=purl_exclude,
-        init_exclude=init_exclude,
         pretty=pretty,
         config=config,
         verbose=state["verbose"],
@@ -253,17 +245,17 @@ def cmd_scan(
     tool: str | None = typer.Option(None, "--tool", help="инструмент: cdxgen | trivy"),
     target: str | None = typer.Option(None, "--target", help="путь или образ для сканирования"),
     output: str | None = typer.Option(None, "--output", "-o", help="выходной файл SBOM"),
-    config: str | None = typer.Option(None, "--config", help="путь к .sbom-config.json"),
+    config: str | None = typer.Option(None, "--config", help="путь к .efs-config.json"),
 ):
-    from efc.config import get_scanner_config, load_config
-    from efc.scanner import SUPPORTED_TOOLS, run_scan
+    from efs.config import get_scanner_config, load_config
+    from efs.scanner import SUPPORTED_TOOLS, run_scan
 
     cfg = load_config(config)
 
     # Если конфига нет — запускаем init wizard
     if cfg is None:
-        typer.echo("Конфиг .sbom-config.json не найден. Запускаем мастер инициализации...")
-        from efc.init_wizard import run_wizard
+        typer.echo("Конфиг .efs-config.json не найден. Запускаем мастер инициализации...")
+        from efs.init_wizard import run_wizard
 
         run_wizard(verbose=state["verbose"])
         return
@@ -294,7 +286,7 @@ def cmd_scan(
     "find-vcs", help="Найти VCS-ссылки для компонентов конфига без VCS (исключая exclude и provided_by)"
 )
 def cmd_config_find_vcs(
-    config_path: str | None = typer.Option(None, "--config", "-c", help="путь к .sbom-config.json"),
+    config_path: str | None = typer.Option(None, "--config", "-c", help="путь к .efs-config.json"),
     workers: int = typer.Option(8, "--workers", "-w", help="число параллельных потоков"),
 ):
     import json
@@ -302,13 +294,13 @@ def cmd_config_find_vcs(
     from rich.console import Console
     from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn
 
-    from efc.config import load_config
+    from efs.config import load_config
 
     console = Console()
 
     config = load_config(config_path)
     if not config:
-        console.print("[red]✗[/red] Конфиг .sbom-config.json не найден")
+        console.print("[red]✗[/red] Конфиг .efs-config.json не найден")
         raise typer.Exit(code=1)
 
     # Определить путь к файлу конфига для сохранения
@@ -317,7 +309,7 @@ def cmd_config_find_vcs(
     if config_path:
         save_path = Path(config_path)
     else:
-        save_path = Path.cwd() / ".sbom-config.json"
+        save_path = Path.cwd() / ".efs-config.json"
 
     components = config.get("components", {})
 
@@ -340,7 +332,7 @@ def cmd_config_find_vcs(
 
     console.print(f"Компонентов для поиска VCS: {len(purls_to_find)}")
 
-    from efc.updater import RefFinder
+    from efs.updater import RefFinder
 
     ref_finder = RefFinder()
     found = 0
@@ -391,19 +383,19 @@ def cmd_config_find_vcs(
     "status", help="Показать компоненты конфига, для которых не хватает VCS, provided_by или GOST-свойств"
 )
 def cmd_config_status(
-    config_path: str | None = typer.Option(None, "--config", "-c", help="путь к .sbom-config.json"),
+    config_path: str | None = typer.Option(None, "--config", "-c", help="путь к .efs-config.json"),
     show_all: bool = typer.Option(False, "--all", "-a", help="показать все компоненты, не только проблемные"),
 ):
     from rich.console import Console
     from rich.table import Table
 
-    from efc.config import guess_source_langs, load_config
+    from efs.config import guess_source_langs, load_config
 
     console = Console()
 
     config = load_config(config_path)
     if not config:
-        console.print("[red]✗[/red] Конфиг .sbom-config.json не найден")
+        console.print("[red]✗[/red] Конфиг .efs-config.json не найден")
         raise typer.Exit(code=1)
 
     components = config.get("components", {})
@@ -471,16 +463,16 @@ def cmd_config_status(
         console.print(table)
 
 
-@config_app.command("init", help="Сгенерировать .sbom-config.json из одного или нескольких SBOM")
+@config_app.command("init", help="Сгенерировать .efs-config.json из одного или нескольких SBOM")
 def cmd_config_init(
     inputs: list[str] = typer.Argument(..., metavar="INPUT", help="входные файлы CycloneDX JSON (один или несколько)"),
     output: str | None = typer.Option(
-        None, "-o", "--output", help="путь к выходному конфигу (по умолчанию .sbom-config.json)"
+        None, "-o", "--output", help="путь к выходному конфигу (по умолчанию .efs-config.json)"
     ),
 ):
     import json
 
-    from efc.config import init_config
+    from efs.config import init_config
 
     boms = []
     for path in inputs:
@@ -490,16 +482,16 @@ def cmd_config_init(
     init_config(boms[0], output_path=output, extra_boms=boms[1:])
 
 
-@config_app.command("migrate", help="Мигрировать старые файлы маппингов в .sbom-config.json")
+@config_app.command("migrate", help="Мигрировать старые файлы маппингов в .efs-config.json")
 def cmd_config_migrate(
     vcs: str | None = typer.Option(None, "--vcs", help="путь к .purl_to_vcs.json"),
     gost: str | None = typer.Option(None, "--gost", help="путь к .purl_to_gost.json"),
     exclude: str | None = typer.Option(None, "--exclude", help="путь к .purl_exclude.json"),
     output: str | None = typer.Option(
-        None, "-o", "--output", help="путь к выходному конфигу (по умолчанию .sbom-config.json)"
+        None, "-o", "--output", help="путь к выходному конфигу (по умолчанию .efs-config.json)"
     ),
 ):
-    from efc.config import migrate_config
+    from efs.config import migrate_config
 
     migrate_config(vcs_path=vcs, gost_path=gost, exclude_path=exclude, output_path=output)
 
@@ -509,7 +501,7 @@ def cmd_config_migrate(
 
 @app.command("init", help="Пошаговый мастер инициализации SBOM-проекта")
 def cmd_init():
-    from efc.init_wizard import run_wizard
+    from efs.init_wizard import run_wizard
 
     run_wizard(verbose=state["verbose"])
 

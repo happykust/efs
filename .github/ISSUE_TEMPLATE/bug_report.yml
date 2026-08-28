@@ -1,5 +1,5 @@
 name: Ошибка
-description: Сообщить о некорректной работе efc
+description: Сообщить о некорректной работе efs
 labels: ["bug"]
 body:
   - type: textarea
@@ -14,7 +14,7 @@ body:
     id: reproduce
     attributes:
       label: Как воспроизвести
-      description: Команда efc целиком и, если возможно, минимальный SBOM-файл или конфиг.
+      description: Команда efs целиком и, если возможно, минимальный SBOM-файл или конфиг.
       render: shell
     validations:
       required: true
@@ -29,8 +29,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: Версия efc
-      description: "Вывод команды: pip show efc"
+      label: Версия efs
+      description: "Вывод команды: pip show efs-sbom"
     validations:
       required: true
 

@@ -5,7 +5,7 @@
 
 import pytest
 
-from efc.postprocess import (
+from efs.postprocess import (
     COMPONENT_STRIP_FIELDS,
     _exclude_direct,
     _purl_matches_exclude,

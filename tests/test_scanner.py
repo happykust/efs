@@ -8,7 +8,7 @@ import subprocess
 
 import pytest
 
-from efc import scanner
+from efs import scanner
 
 
 @pytest.fixture

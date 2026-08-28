@@ -17,7 +17,7 @@ _SUPPORTED_TOOLS = [
     questionary.Choice("trivy (Aqua Security)", value="trivy"),
 ]
 
-_CONFIG_FILENAME = ".sbom-config.json"
+_CONFIG_FILENAME = ".efs-config.json"
 
 
 def _step_scanner_choice() -> tuple[str, str] | None:
@@ -60,18 +60,18 @@ def _step_scan(tool: str, sbom_filename: str) -> bool:
     if src_dir is None:
         return False
 
-    from efc.scanner import run_scan
+    from efs.scanner import run_scan
 
     with console.status(f"Генерация SBOM через {tool}..."):
         return run_scan(tool, src_dir, sbom_filename)
 
 
 def _step_config(sbom_filename: str, tool: str):
-    """Шаг 3: Создание конфига (.sbom-config.json)."""
+    """Шаг 3: Создание конфига (.efs-config.json)."""
     console.rule("[bold]Шаг 3/5: Создание конфига[/bold]")
 
     create_config = questionary.confirm(
-        "Создать .sbom-config.json (единый конфиг для компонентов)?",
+        "Создать .efs-config.json (единый конфиг для компонентов)?",
         default=True,
     ).ask()
     if not create_config:
@@ -83,7 +83,7 @@ def _step_config(sbom_filename: str, tool: str):
         console.print(f"  [red]✗[/red] Файл {sbom_filename} не найден. Сначала сгенерируйте SBOM.")
         return
 
-    from efc.config import init_config
+    from efs.config import init_config
 
     with open(sbom_path, encoding="utf-8") as f:
         bom = json.load(f)
@@ -133,8 +133,8 @@ def _step_vcs_refs(sbom_filename: str):
         console.print(f"  [red]✗[/red] Конфиг {_CONFIG_FILENAME} не найден. Сначала создайте его (шаг 3).")
         return
 
-    from efc.config import _purl_without_version
-    from efc.updater import RefFinder
+    from efs.config import _purl_without_version
+    from efs.updater import RefFinder
 
     with open(sbom_path, encoding="utf-8") as f:
         bom = json.load(f)
@@ -242,7 +242,7 @@ def _step_postprocess(sbom_filename: str):
     if output_name is None:
         return
 
-    from efc.postprocess import run as postprocess_run
+    from efs.postprocess import run as postprocess_run
 
     args = SimpleNamespace(
         input=str(sbom_path),
@@ -257,7 +257,6 @@ def _step_postprocess(sbom_filename: str):
         purl_to_vcs=None,
         purl_to_gost=None,
         purl_exclude=None,
-        init_exclude=False,
         config=None,
         pretty=True,
     )

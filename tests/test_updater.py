@@ -9,15 +9,15 @@ from types import SimpleNamespace
 import pytest
 import responses
 
-from efc import updater
-from efc.updater import RefFinder
+from efs import updater
+from efs.updater import RefFinder
 
 from .conftest import make_bom, make_component
 
 
 @pytest.fixture
 def finder(monkeypatch, tmp_path):
-    """RefFinder с изолированным кешем — без чтения и записи ~/.cache/efc."""
+    """RefFinder с изолированным кешем — без чтения и записи ~/.cache/efs."""
     monkeypatch.setattr(updater, "load_cache", lambda kind: {})
     monkeypatch.setattr(updater, "dump_cache", lambda kind, data: None)
     return RefFinder(str(tmp_path / "отсутствует.json"))
@@ -191,7 +191,7 @@ class TestIsRepo:
 
 
 class TestRun:
-    """Проверка команды `efc update` без обращения к сети (--ref не используется)."""
+    """Проверка команды `efs update` без обращения к сети (--ref не используется)."""
 
     def _args(self, tmp_path, input_path, **overrides):
         base = {
@@ -205,8 +205,6 @@ class TestRun:
             "purl_to_vcs": None,
             "gost": False,
             "purl_to_gost": None,
-            "init_gost_map": False,
-            "init_purl_map": False,
             "extra_input": [],
             "fix_all": False,
             "update": None,
@@ -254,11 +252,3 @@ class TestRun:
         path = self._write_bom(tmp_path, [make_component("requests", "2.32.5")])
         with pytest.raises(SystemExit):
             updater.run(self._args(tmp_path, path, output=None))
-
-    def test_init_purl_map_creates_template(self, tmp_path, monkeypatch):
-        path = self._write_bom(tmp_path, [make_component("requests", "2.32.5")])
-        monkeypatch.chdir(tmp_path)
-        updater.run(self._args(tmp_path, path, init_purl_map=True, output=None))
-
-        mapping = json.loads((tmp_path / ".purl_to_vcs.json").read_text(encoding="utf-8"))
-        assert mapping == {"pkg:pypi/requests@2.32.5": ""}

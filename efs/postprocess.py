@@ -23,7 +23,7 @@ from collections import deque
 from pathlib import Path
 from urllib.parse import unquote
 
-from efc.config import (
+from efs.config import (
     apply_config_to_component,
     config_to_purl_exclude,
     config_to_purl_to_gost,
@@ -389,9 +389,10 @@ def _resolve_config_path(cli_path=None):
     """Определить путь к файлу конфига."""
     if cli_path:
         return Path(cli_path)
-    cwd_file = Path.cwd() / ".sbom-config.json"
-    if cwd_file.is_file():
-        return cwd_file
+    for filename in (".efs-config.json", ".sbom-config.json"):
+        cwd_file = Path.cwd() / filename
+        if cwd_file.is_file():
+            return cwd_file
     return None
 
 
@@ -576,25 +577,6 @@ def exclude_components(bom, exclude_purls):
     return len(refs_to_remove)
 
 
-def init_purl_exclude(bom, output_path):
-    """Сгенерировать шаблон .purl_exclude.json из текущего BOM.
-
-    Создаёт файл со всеми purl (без версий) из BOM для удобного выбора
-    компонентов на исключение.
-    """
-    purls = sorted(
-        {
-            _purl_without_version(comp.get("purl", ""))
-            for comp in _iter_components_flat(bom.get("components", []))
-            if comp.get("purl")
-        }
-    )
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(purls, f, indent=2, ensure_ascii=False)
-    print(f"Шаблон записан: {output_path} ({len(purls)} purl)")
-    print("  Удалите из файла те purl, которые НЕ нужно исключать, и передайте через --purl-exclude")
-
-
 def _remove_manifest_components(bom):
     """Удалить компоненты-манифесты (pom.xml, lock-файлы) без purl.
 
@@ -709,13 +691,7 @@ def run(args):
         with open(args.input, encoding="utf-8-sig") as f:
             bom = json.load(f)
 
-    # --init-exclude: сгенерировать шаблон и выйти
-    if getattr(args, "init_exclude", False):
-        out = getattr(args, "purl_exclude", None) or _PURL_EXCLUDE_FILENAME
-        init_purl_exclude(bom, out)
-        return
-
-    # Попытка загрузить единый конфиг (.sbom-config.json)
+    # Попытка загрузить единый конфиг (.efs-config.json)
     config = load_config(getattr(args, "config", None))
 
     purl_to_vcs = None

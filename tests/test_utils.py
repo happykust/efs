@@ -9,8 +9,8 @@ import subprocess
 import pytest
 import requests
 
-from efc import utils
-from efc.utils import (
+from efs import utils
+from efs.utils import (
     combine_source_langs,
     get_prop,
     is_archive_url,

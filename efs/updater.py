@@ -449,112 +449,13 @@ def _has_provided_by(component):
     return False
 
 
-def _extract_purls(filenames, skip_provided_by=False, purl_to_gost=None):
-    """Извлечь все purl из списка SBOM-файлов.
-
-    Если skip_provided_by=True, пропускает компоненты, у которых установлено
-    свойство GOST:provided_by (в properties компонента или в маппинге purl_to_gost).
-    """
-    provided_by_purls = set()
-    if skip_provided_by and purl_to_gost:
-        provided_by_purls = {k for k, v in purl_to_gost.get("GOST:provided_by", {}).items() if v}
-
-    purls = set()
-    for fn in filenames:
-        data, _ = opener(fn)
-        stack = data.get("components", []).copy()
-        while stack:
-            comp = stack.pop(0)
-            if "components" in comp:
-                stack += comp["components"]
-            purl = comp.get("purl", "")
-            if not purl:
-                continue
-            if skip_provided_by:
-                if _has_provided_by(comp) or purl in provided_by_purls:
-                    continue
-            purls.add(purl)
-    return sorted(purls)
-
-
 def run(args, progress_callback=None):
     if getattr(args, "verbose", False):
         logging.basicConfig(format="%(message)s", level="INFO")
 
-    if not args.init_purl_map and not args.init_gost_map and not args.output:
-        print("ошибка: аргумент output обязателен (если не используется --init-purl-map или --init-gost-map)")
+    if not args.output:
+        print("ошибка: аргумент output обязателен")
         sys.exit(1)
-
-    extra = getattr(args, "extra_input", None) or []
-
-    if args.init_gost_map:
-        purls = _extract_purls([args.input] + extra)
-        out_path = Path.cwd() / _PURL_TO_GOST_FILENAME
-        existing = {}
-        if out_path.is_file() and out_path.stat().st_size > 0:
-            with open(out_path) as f:
-                existing = json.load(f)
-        purl_set = set(purls)
-        # Гарантировать наличие секций
-        for prop_name in _GOST_PROPS:
-            if prop_name not in existing:
-                existing[prop_name] = {}
-        if "GOST:provided_by" not in existing:
-            existing["GOST:provided_by"] = {}
-        # Удалить purl, которых нет во входном файле
-        removed = 0
-        for prop_name in list(existing.keys()):
-            section = existing[prop_name]
-            if not isinstance(section, dict):
-                continue
-            to_del = [k for k in section if k not in purl_set]
-            removed += len(to_del)
-            for k in to_del:
-                del section[k]
-        # Добавить новые purl со значением "no" (только для attack_surface и security_function)
-        added = 0
-        for purl in purls:
-            for prop_name in _GOST_PROPS:
-                if purl not in existing[prop_name]:
-                    existing[prop_name][purl] = _GOST_DEFAULT_VALUE
-                    added += 1
-        with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(existing, f, indent=2, ensure_ascii=False)
-        total = len(purls)
-        non_default = 0
-        for prop_name in _GOST_PROPS:
-            non_default += sum(1 for v in existing[prop_name].values() if v != _GOST_DEFAULT_VALUE)
-        non_default += sum(1 for v in existing.get("GOST:provided_by", {}).values() if v)
-        print(f"Записано в {out_path}: {total} purl")
-        print(f"  Нестандартных значений: {non_default}")
-        if removed:
-            print(f"  Удалено устаревших записей: {removed}")
-        if not args.init_purl_map:
-            return
-
-    if args.init_purl_map:
-        purl_to_gost = _load_purl_to_gost(getattr(args, "purl_to_gost", None))
-        purls = _extract_purls([args.input] + extra, skip_provided_by=True, purl_to_gost=purl_to_gost)
-        out_path = Path.cwd() / _PURL_TO_VCS_FILENAME
-        existing = {}
-        if out_path.is_file() and out_path.stat().st_size > 0:
-            with open(out_path) as f:
-                existing = json.load(f)
-        purl_set = set(purls)
-        removed = [k for k in existing if k not in purl_set]
-        for k in removed:
-            del existing[k]
-        for purl in purls:
-            if purl not in existing:
-                existing[purl] = ""
-        with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(existing, f, indent=2, ensure_ascii=False)
-        filled = sum(1 for v in existing.values() if v)
-        total = len(existing)
-        print(f"Записано в {out_path}: {total} purl ({filled} заполнено, {total - filled} пусто)")
-        if removed:
-            print(f"  Удалено лишних: {len(removed)}")
-        return
 
     input_data, encoding = opener(args.input)
 

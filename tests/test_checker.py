@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from efc import checker
+from efs import checker
 
 from .conftest import make_bom, make_component
 

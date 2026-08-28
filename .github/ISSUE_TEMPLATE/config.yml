@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Вопрос по использованию
-    url: https://github.com/happykust/efc/discussions
+    url: https://github.com/happykust/efs/discussions
     about: Задайте вопрос в обсуждениях, если это не ошибка и не предложение
   - name: Уязвимость безопасности
-    url: https://github.com/happykust/efc/security/advisories/new
+    url: https://github.com/happykust/efs/security/advisories/new
     about: Сообщайте об уязвимостях приватно, а не через issue

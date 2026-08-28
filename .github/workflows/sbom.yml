@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   self-sbom:
-    name: SBOM самого efc
+    name: SBOM самого efs
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -24,18 +24,18 @@ jobs:
       - run: uv sync --locked
       - name: Генерация и постобработка SBOM
         run: |
-          uv run efc scan --tool cdxgen --target . --output bom.raw.json
-          uv run efc postprocess bom.raw.json efc.sbom.json \
-            --app-name efc \
+          uv run efs scan --tool cdxgen --target . --output bom.raw.json
+          uv run efs postprocess bom.raw.json efs.sbom.json \
+            --app-name efs \
             --app-version "${GITHUB_REF_NAME#v}" \
             --manufacturer "Kirill Nikolaevskiy"
       - name: Валидация результата
         run: |
-          uv run efc check efc.sbom.json || status=$?
+          uv run efs check efs.sbom.json || status=$?
           if [ "${status:-0}" = "1" ]; then
             exit 1
           fi
       - uses: actions/upload-artifact@v7
         with:
-          name: efc-sbom
-          path: efc.sbom.json
+          name: efs-sbom
+          path: efs.sbom.json

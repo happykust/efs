@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from efc.unifier import eval_prop, is_trivy_sbom, run
+from efs.unifier import eval_prop, is_trivy_sbom, run
 
 from .conftest import make_bom, make_component, make_trivy_bom, trivy_component, trivy_manifest
 

@@ -9,21 +9,22 @@
 
 ### Изменено (breaking)
 
-- `efc check` возвращает осмысленный код: `0` — перечень готов, `1` — ошибки схемы
+- `efs check` возвращает осмысленный код: `0` — перечень готов, `1` — ошибки схемы
   или недоступные ссылки, `2` — схема в порядке, но перечень не заполнен. Прежде
   команда всегда завершалась с кодом `0`, из-за чего не годилась для CI.
-- Проект переименован в **efc** (Easy FSTEC Certification).
-  - Python-пакет: `sbom_utils` → `efc`.
-  - CLI-команда: `sbom` → `efc`.
-  - Модуль `sbom_utils.sbom_utils` → `efc.utils`.
-  - Модуль `sbom_utils.cdxgen_postprocess` → `efc.postprocess` (обрабатывает вывод
+- Проект переименован в **efs** (Easy FSTEC SBOMs).
+  - Дистрибутив на PyPI: `efs-sbom` (имя `efs` там занято чужим пакетом).
+  - Python-пакет: `sbom_utils` → `efs`.
+  - CLI-команда: `sbom` → `efs`.
+  - Модуль `sbom_utils.sbom_utils` → `efs.utils`.
+  - Модуль `sbom_utils.cdxgen_postprocess` → `efs.postprocess` (обрабатывает вывод
     и cdxgen, и trivy, прежнее имя вводило в заблуждение).
-  - Каталог кеша: `~/.cache/sbom-checker` → `~/.cache/efc`. Прежний кеш не
+  - Каталог кеша: `~/.cache/sbom-checker` → `~/.cache/efs`. Прежний кеш не
     переносится — при первом запуске проверки выполняются заново.
   - Имя файла конфигурации `.sbom-config.json` не изменилось.
 - Удалён неиспользуемый слой argparse из модулей (`configure_parser()`, `main()`,
   `if __name__ == '__main__'`). Прямой вызов модулей вида
-  `python -m sbom_utils.updater` больше не поддерживается — используйте `efc update`.
+  `python -m sbom_utils.updater` больше не поддерживается — используйте `efs update`.
 - Удалён `requirements.txt`: зависимости описаны в `pyproject.toml`, версии
   зафиксированы в `uv.lock`.
 
@@ -33,31 +34,33 @@
 - CI на GitHub Actions: линтер, тесты на Python 3.12/3.13/3.14, сборка пакета
   с проверкой состава wheel и запуск команд из установленного дистрибутива.
 - Публикация в PyPI по тегу через trusted publishing, релиз на GitHub с дистрибутивами.
-- Workflow генерации SBOM самого efc (cdxgen → postprocess → check) на релизных тегах.
+- Workflow генерации SBOM самого efs (cdxgen → postprocess → check) на релизных тегах.
 - `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, шаблоны issue и pull request,
   конфигурация Dependabot.
 - Пример заполненного перечня — `examples/example-sbom.json`.
+- Документация в `docs/`: руководство по подготовке перечня под ФСТЭК, справочник
+  команд и описание конфига. README сокращён до точки входа.
 - Поле `source_langs` в конфиге: языки задаются списком или строкой и попадают в
   SBOM отдельным свойством `GOST:source_langs` на каждый язык, как требует ФСТЭК.
   Для большинства экосистем (pypi, npm, maven, cargo, golang, gem, nuget и других)
   язык определяется по типу purl автоматически; `deb` и `rpm` заполняются вручную.
-  `efc config init` подставляет язык в конфиг, `efc config status` показывает
+  `efs config init` подставляет язык в конфиг, `efs config status` показывает
   компоненты без языка.
 - Экспорт в CSV и ODT выводит все языки компонента, а не только первый.
-- `efc check` проверяет готовность перечня к сдаче: заглушки `TODO` в метаданных,
+- `efs check` проверяет готовность перечня к сдаче: заглушки `TODO` в метаданных,
   отсутствие ГОСТ-свойств и `GOST:source_langs`, компоненты без ссылки на
   репозиторий и без `GOST:provided_by`. В конце печатается сводка по видам
   замечаний. Отдельного флага нет — проверка выполняется всегда.
-- `efc merge` объединяет сырые отчёты trivy: компоненты дедуплицируются по purl,
+- `efs merge` объединяет сырые отчёты trivy: компоненты дедуплицируются по purl,
   уязвимости — по CVE, зависимости пересопоставляются, компоненты-манифесты и
   висячие ссылки отбрасываются. Смешивание trivy-отчётов с обычными SBOM
   завершается ошибкой.
 - `NOTICE` с атрибуцией ИСП РАН как автора исходного проекта sbom-checker.
 - Поддержка значения `exclude: "direct"` в конфиге — исключение самого компонента
   без каскадного удаления его транзитивных зависимостей.
-- Резолверы VCS-ссылок для PyPI, npm, Maven, RPM и Deb в `efc update`.
+- Резолверы VCS-ссылок для PyPI, npm, Maven, RPM и Deb в `efs update`.
 - Параллельная обработка purl при поиске VCS-ссылок.
-- Команда `efc config migrate` — была описана в README, но отсутствовала в CLI.
+- Команда `efs config migrate` — была описана в README, но отсутствовала в CLI.
 
 ### Исправлено
 
@@ -73,8 +76,8 @@
   chromium) больше не помечаются как недоступные.
 - Неинтерактивный режим для `svn ls` и `hg identify` — проверка VCS не зависает
   в ожидании ввода учётных данных.
-- Тайм-ауты для всех HTTP-запросов в `efc update`.
-- `efc check --check-source-distribution` завершался исключением на каждой ссылке:
+- Тайм-ауты для всех HTTP-запросов в `efs update`.
+- `efs check --check-source-distribution` завершался исключением на каждой ссылке:
   `is_archive_url` вызывался без HTTP-сессии. Ошибки внутри параллельных проверок
   больше не игнорируются — файл не объявляется корректным.
 - `rich` добавлен в явные зависимости: модули использовали его, полагаясь на
@@ -86,5 +89,5 @@
 `.sbom-config.json`, команды `check`, `update`, `merge`, `postprocess`, `scan`,
 `export`, `config`, `init`.
 
-[Unreleased]: https://github.com/happykust/efc/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/happykust/efc/releases/tag/v1.0.0
+[Unreleased]: https://github.com/happykust/efs/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/happykust/efs/releases/tag/v1.0.0

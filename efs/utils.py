@@ -227,7 +227,7 @@ def opener(filename, pairs=False):
 
 
 def load_cache(type):
-    cache_file = platformdirs.user_cache_path("efc", ensure_exists=True) / f"check_{type.replace('-', '_')}.json"
+    cache_file = platformdirs.user_cache_path("efs", ensure_exists=True) / f"check_{type.replace('-', '_')}.json"
     if os.path.isfile(cache_file):
         with open(cache_file) as f:
             return json.load(f)
@@ -235,7 +235,7 @@ def load_cache(type):
 
 
 def dump_cache(type, data):
-    cache_file = platformdirs.user_cache_path("efc", ensure_exists=True) / f"check_{type.replace('-', '_')}.json"
+    cache_file = platformdirs.user_cache_path("efs", ensure_exists=True) / f"check_{type.replace('-', '_')}.json"
     with open(cache_file, "w") as f:
         json.dump(data, f)
 

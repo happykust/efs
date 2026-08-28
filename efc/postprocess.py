@@ -530,11 +530,16 @@ def exclude_components(bom, exclude_purls):
         # BFS от корня (или всех не-excluded узлов) по prod-графу
         # → всё достижимое — prod-зависимости, которые нужно сохранить
         prod_reachable = set()
+        # Корни леса считаем по ИСХОДНОМУ графу: узел без входящих рёбер — это
+        # верхнеуровневая зависимость проекта, осиротевшая после удаления
+        # узлов-манифестов (uv.lock и т.п.). Если считать их по prod-графу,
+        # корнем становится и зависимость, которую держал только исключённый
+        # компонент, и каскад перестаёт работать вовсе.
         referenced = set()
-        for _deps_list in prod_graph.values():
+        for _deps_list in graph.values():
             referenced.update(_deps_list)
         forest_roots = {n for n in prod_graph if n not in referenced}
-        prod_starts = ({root_ref} | forest_roots) if root_ref else set(prod_graph.keys())
+        prod_starts = forest_roots | ({root_ref} if root_ref else set())
         queue = deque(prod_starts)
         while queue:
             node = queue.popleft()

@@ -80,13 +80,8 @@ class TestExcludeComponents:
         exclude_components(bom, ["pkg:npm/ajv@6.12.6"])
         assert [c["version"] for c in bom["components"]] == ["8.20.0"]
 
-    def test_orphaned_transitive_dependency_is_kept(self):
-        """Зависимость исключённого узла, оставшаяся без входящих рёбер, сохраняется.
-
-        Так задумано: после удаления узлов-манифестов реальные prod-зависимости
-        остаются «осиротевшими», и агрессивный каскад вынес бы из SBOM рантайм.
-        Узлы без входящих рёбер считаются корнями леса и остаются.
-        """
+    def test_cascade_removes_exclusive_transitive_dependency(self):
+        """Зависимость, которую держал только исключённый компонент, удаляется вместе с ним."""
         bom = make_bom(
             [
                 make_component("eslint", "8.0.0", purl="pkg:npm/eslint@8.0.0"),
@@ -100,9 +95,9 @@ class TestExcludeComponents:
             ],
         )
         removed = exclude_components(bom, ["pkg:npm/eslint"])
-        assert removed == 1
+        assert removed == 2
         names = sorted(c["name"] for c in bom["components"])
-        assert names == ["espree", "lodash"]
+        assert names == ["lodash"]
 
     def test_cascade_keeps_shared_dependency(self):
         """Зависимость, нужная и не исключённому компоненту, остаётся."""
@@ -121,6 +116,42 @@ class TestExcludeComponents:
         exclude_components(bom, ["pkg:npm/eslint"])
         names = sorted(c["name"] for c in bom["components"])
         assert names == ["app-lib", "lodash"]
+
+    def test_orphaned_component_survives_cascade(self):
+        """Компонент без входящих рёбер — верхнеуровневая зависимость, а не потомок исключённого.
+
+        После удаления узлов-манифестов реальные prod-зависимости остаются
+        «осиротевшими»; каскад не должен выносить их из SBOM.
+        """
+        bom = make_bom(
+            [
+                make_component("eslint", "8.0.0", purl="pkg:npm/eslint@8.0.0"),
+                make_component("runtime-lib", "1.0.0", purl="pkg:npm/runtime-lib@1.0.0"),
+            ],
+            dependencies=[
+                {"ref": "pkg:npm/eslint@8.0.0", "dependsOn": []},
+                {"ref": "pkg:npm/runtime-lib@1.0.0", "dependsOn": []},
+            ],
+        )
+        exclude_components(bom, ["pkg:npm/eslint"])
+        assert [c["name"] for c in bom["components"]] == ["runtime-lib"]
+
+    def test_deep_transitive_chain_removed(self):
+        """Каскад идёт вглубь: удаляется вся цепочка, висящая только на исключённом узле."""
+        bom = make_bom(
+            [
+                make_component("eslint", "8.0.0", purl="pkg:npm/eslint@8.0.0"),
+                make_component("espree", "9.0.0", purl="pkg:npm/espree@9.0.0"),
+                make_component("acorn", "8.11.0", purl="pkg:npm/acorn@8.11.0"),
+            ],
+            dependencies=[
+                {"ref": "pkg:npm/eslint@8.0.0", "dependsOn": ["pkg:npm/espree@9.0.0"]},
+                {"ref": "pkg:npm/espree@9.0.0", "dependsOn": ["pkg:npm/acorn@8.11.0"]},
+                {"ref": "pkg:npm/acorn@8.11.0", "dependsOn": []},
+            ],
+        )
+        exclude_components(bom, ["pkg:npm/eslint"])
+        assert bom["components"] == []
 
     def test_nothing_to_exclude(self):
         bom = make_bom([make_component("requests", "2.32.5")])

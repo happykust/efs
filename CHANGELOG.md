@@ -27,6 +27,13 @@
 ### Добавлено
 
 - Набор тестов на pytest и конфигурация ruff.
+- CI на GitHub Actions: линтер, тесты на Python 3.12/3.13/3.14, сборка пакета
+  с проверкой состава wheel и запуск команд из установленного дистрибутива.
+- Публикация в PyPI по тегу через trusted publishing, релиз на GitHub с дистрибутивами.
+- Workflow генерации SBOM самого efc (cdxgen → postprocess → check) на релизных тегах.
+- `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, шаблоны issue и pull request,
+  конфигурация Dependabot.
+- Пример заполненного перечня — `examples/example-sbom.json`.
 - `NOTICE` с атрибуцией ИСП РАН как автора исходного проекта sbom-checker.
 - Поддержка значения `exclude: "direct"` в конфиге — исключение самого компонента
   без каскадного удаления его транзитивных зависимостей.

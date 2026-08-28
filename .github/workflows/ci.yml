@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Линтер и форматирование
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run ruff check --output-format=github .
+      - run: uv run ruff format --check .
+
+  test:
+    name: Тесты (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+      - run: uv sync --locked
+      - run: uv run pytest -q --cov=efc --cov-report=term-missing
+
+  build:
+    name: Сборка пакета
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+      - run: uv build
+      - name: Проверка метаданных дистрибутивов
+        run: uvx twine check dist/*
+      - name: Проверка данных пакета в wheel
+        run: |
+          python3 - <<'PY'
+          import glob, sys, zipfile
+
+          required = (
+              "efc/schemas/schema.json",
+              "efc/schemas/schema_container.json",
+              "efc/additional_schemas/spdx.schema.json",
+              "efc/additional_schemas/jsf-0.82.schema.json",
+              "efc/odt_templates/template.odt",
+              "efc/odt_templates/template_container.odt",
+          )
+          names = set(zipfile.ZipFile(glob.glob("dist/*.whl")[0]).namelist())
+          missing = [item for item in required if item not in names]
+          if missing:
+              sys.exit("в wheel отсутствуют файлы: " + ", ".join(missing))
+          print("данные пакета на месте")
+          PY
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+
+  smoke:
+    name: Проверка установленного пакета
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - uses: astral-sh/setup-uv@v10
+      - name: Установка из wheel и запуск команд
+        run: |
+          uv venv
+          uv pip install dist/*.whl
+          uv run efc --help
+          uv run efc check examples/example-sbom.json
+          uv run efc export csv examples/example-sbom.json /tmp/components.csv

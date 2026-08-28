@@ -1,0 +1,36 @@
+name: Предложение
+description: Предложить новую возможность или улучшение
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Какую задачу это решает
+      description: Опишите ситуацию, в которой текущих возможностей не хватает.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Предлагаемое решение
+      description: Как это могло бы работать — команда, флаг, поле конфига.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Альтернативы
+      description: Что вы пробовали или рассматривали вместо этого.
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Область
+      options:
+        - label: Требования ФСТЭК / ГОСТ Р 56939-2024
+        - label: Генерация SBOM (cdxgen, trivy)
+        - label: Валидация и схемы
+        - label: Экспорт (CSV, ODT)
+        - label: Конфигурация

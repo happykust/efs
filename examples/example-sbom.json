@@ -1,0 +1,58 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-01-01T00:00:00+00:00",
+    "component": {
+      "type": "application",
+      "name": "Пример приложения",
+      "version": "1.0.0",
+      "manufacturer": {
+        "name": "ООО Пример"
+      }
+    }
+  },
+  "components": [
+    {
+      "type": "library",
+      "name": "requests",
+      "version": "2.32.5",
+      "purl": "pkg:pypi/requests@2.32.5",
+      "properties": [
+        {"name": "GOST:attack_surface", "value": "yes"},
+        {"name": "GOST:security_function", "value": "no"},
+        {"name": "GOST:source_langs", "value": "Python"}
+      ],
+      "externalReferences": [
+        {"type": "vcs", "url": "https://github.com/psf/requests"}
+      ]
+    },
+    {
+      "type": "library",
+      "name": "jsonschema",
+      "version": "4.26.0",
+      "purl": "pkg:pypi/jsonschema@4.26.0",
+      "properties": [
+        {"name": "GOST:attack_surface", "value": "indirect"},
+        {"name": "GOST:security_function", "value": "no"},
+        {"name": "GOST:source_langs", "value": "Python"}
+      ],
+      "externalReferences": [
+        {"type": "vcs", "url": "https://github.com/python-jsonschema/jsonschema"}
+      ]
+    },
+    {
+      "type": "library",
+      "name": "внутренняя-библиотека",
+      "version": "2.1.0",
+      "purl": "pkg:generic/internal-lib@2.1.0",
+      "properties": [
+        {"name": "GOST:attack_surface", "value": "no"},
+        {"name": "GOST:security_function", "value": "yes"},
+        {"name": "GOST:source_langs", "value": "C, Python"},
+        {"name": "GOST:provided_by", "value": "ООО Пример"}
+      ]
+    }
+  ]
+}

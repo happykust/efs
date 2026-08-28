@@ -1,0 +1,49 @@
+name: Ошибка
+description: Сообщить о некорректной работе efc
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: Что произошло
+      description: Опишите проблему и чего вы ожидали вместо этого.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Как воспроизвести
+      description: Команда efc целиком и, если возможно, минимальный SBOM-файл или конфиг.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Вывод команды
+      description: Полный вывод, включая traceback. Запустите с флагом -v для подробностей.
+      render: shell
+
+  - type: input
+    id: version
+    attributes:
+      label: Версия efc
+      description: "Вывод команды: pip show efc"
+    validations:
+      required: true
+
+  - type: input
+    id: python
+    attributes:
+      label: Версия Python и ОС
+      placeholder: "3.12.7, Ubuntu 24.04"
+    validations:
+      required: true
+
+  - type: input
+    id: scanner
+    attributes:
+      label: Инструмент генерации SBOM
+      description: Если проблема связана со сканированием — cdxgen или trivy и его версия.

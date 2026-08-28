@@ -1,0 +1,37 @@
+name: SBOM
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  self-sbom:
+    name: SBOM самого efc
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - run: npm install -g @cyclonedx/cdxgen
+      - run: uv sync --locked
+      - name: Генерация и постобработка SBOM
+        run: |
+          uv run efc scan --tool cdxgen --target . --output bom.raw.json
+          uv run efc postprocess bom.raw.json efc.sbom.json \
+            --app-name efc \
+            --app-version "${GITHUB_REF_NAME#v}" \
+            --manufacturer "Kirill Nikolaevskiy"
+      - name: Валидация результата
+        run: uv run efc check efc.sbom.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: efc-sbom
+          path: efc.sbom.json

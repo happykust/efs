@@ -7,13 +7,14 @@ import datetime
 import json
 import logging
 import os
-from pathlib import Path
 import sys
 import threading
-from requests import Session, adapters
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
-from .utils import opener, check_repo, load_cache, dump_cache
+from requests import Session, adapters
+
+from .utils import check_repo, dump_cache, load_cache, opener
 
 _PURL_TO_VCS_FILENAME = '.purl_to_vcs.json'
 _PURL_TO_GOST_FILENAME = '.purl_to_gost.json'
@@ -142,7 +143,7 @@ class _TimeoutHTTPAdapter(adapters.HTTPAdapter):
         return super().send(*args, **kwargs)
 
 
-class RefFinder(object):
+class RefFinder:
     def __init__(self, purl_file=None):
         self._placeholder_url = 'sbom-updater_generated_placeholder:'
         self._nuget_addr = None
@@ -207,7 +208,7 @@ class RefFinder(object):
 
     def _analyse_urls(self, urls, purl, log_prefix):
         for url in urls:
-            if type(url) == str:
+            if isinstance(url, str):
                 if url.startswith('git://'):
                     url = "https" + url[3:]
                 if self.is_repo(url):
@@ -244,11 +245,11 @@ class RefFinder(object):
             if child.tag.endswith("metadata"):
                 for child2 in child:
                     if child2.tag.endswith("projectUrl"):
-                        if not child2.text in urls:
+                        if child2.text not in urls:
                             urls.append(child2.text)
                     elif child2.tag.endswith("repository"):
                         if child2.attrib.get("url", ''):
-                            if not child2.attrib['url'] in urls:
+                            if child2.attrib['url'] not in urls:
                                 urls.append(child2.attrib['url'])
         return list(reversed(urls))
 
@@ -266,10 +267,10 @@ class RefFinder(object):
         md = gem_data.get('metadata', dict())
         for kw in kws:
             url = gem_data.get(kw, '')
-            if url and not url in urls:
+            if url and url not in urls:
                 urls.append(url)
             url = md.get(kw, '')
-            if url and not url in urls:
+            if url and url not in urls:
                 urls.append(url)
         return urls
 
@@ -565,7 +566,7 @@ def run(args, progress_callback=None):
         stack = input_data.get('components', []).copy()
         while stack:
             component = stack.pop()
-            if not 'properties' in component:
+            if 'properties' not in component:
                 component['properties'] = []
             if not has_prop(component['properties'], 'GOST:attack_surface'):
                 component['properties'].append({'name': 'GOST:attack_surface', 'value': 'yes'})
@@ -574,45 +575,45 @@ def run(args, progress_callback=None):
             if 'components' in component:
                 stack += component['components']
 
-    if not args.app_name is None or args.fix_all:
-        if not 'metadata' in input_data:
+    if args.app_name is not None or args.fix_all:
+        if 'metadata' not in input_data:
             input_data['metadata'] = dict()
-        if not 'component' in input_data['metadata']:
+        if 'component' not in input_data['metadata']:
             input_data['metadata']['component'] = dict()
-        if not args.app_name is None:
+        if args.app_name is not None:
             if 'name' in input_data['metadata']['component']:
                 logging.info(f"смена названия продукта {input_data['metadata']['component']['name']} -> {args.app_name}")
                 logging.info('-'*50)
             input_data['metadata']['component']['name'] = args.app_name
-        elif not 'name' in input_data['metadata']['component']:
+        elif 'name' not in input_data['metadata']['component']:
             input_data['metadata']['component']['name'] = DEFAULT_VALUE
 
-    if not args.app_version is None or args.fix_all:
-        if not 'metadata' in input_data:
+    if args.app_version is not None or args.fix_all:
+        if 'metadata' not in input_data:
             input_data['metadata'] = dict()
-        if not 'component' in input_data['metadata']:
+        if 'component' not in input_data['metadata']:
             input_data['metadata']['component'] = dict()
-        if not args.app_version is None:
+        if args.app_version is not None:
             if 'version' in input_data['metadata']['component']:
                 logging.info(f"смена версии продукта {input_data['metadata']['component']['version']} -> {args.app_version}")
                 logging.info('-'*50)
             input_data['metadata']['component']['version'] = args.app_version
-        elif not 'version' in input_data['metadata']['component']:
+        elif 'version' not in input_data['metadata']['component']:
             input_data['metadata']['component']['version'] = DEFAULT_VALUE
 
-    if not args.manufacturer is None or args.fix_all:
-        if not 'metadata' in input_data:
+    if args.manufacturer is not None or args.fix_all:
+        if 'metadata' not in input_data:
             input_data['metadata'] = dict()
-        if not 'component' in input_data['metadata']:
+        if 'component' not in input_data['metadata']:
             input_data['metadata']['component'] = dict()
-        if not 'manufacturer' in input_data['metadata']['component']:
+        if 'manufacturer' not in input_data['metadata']['component']:
             input_data['metadata']['component']['manufacturer'] = dict()
-        if not args.manufacturer is None:
+        if args.manufacturer is not None:
             if 'name' in input_data['metadata']['component']['manufacturer']:
                 logging.info(f"смена названия организации {input_data['metadata']['component']['manufacturer']['name']} -> {args.manufacturer}")
                 logging.info('-'*50)
             input_data['metadata']['component']['manufacturer']['name'] = args.manufacturer
-        elif not 'name' in input_data['metadata']['component']['manufacturer']:
+        elif 'name' not in input_data['metadata']['component']['manufacturer']:
             input_data['metadata']['component']['manufacturer']['name'] = DEFAULT_VALUE
 
     if args.ref or args.fix_all:
@@ -695,40 +696,40 @@ def run(args, progress_callback=None):
 
         if 'metadata' in old_data and 'component' in old_data['metadata'] and 'name' in old_data['metadata']['component']:
             old_name = old_data['metadata']['component']['name']
-            if not 'metadata' in input_data:
+            if 'metadata' not in input_data:
                 input_data['metadata'] = dict()
-            if not 'component' in input_data['metadata']:
+            if 'component' not in input_data['metadata']:
                 input_data['metadata']['component'] = dict()
-            if not 'name' in input_data['metadata']['component']:
+            if 'name' not in input_data['metadata']['component']:
                 logging.info(f"перенос названия продукта: {old_name}")
                 logging.info('-'*50)
                 input_data['metadata']['component']['name'] = old_name
         if 'metadata' in old_data and 'component' in old_data['metadata'] and 'version' in old_data['metadata']['component']:
             old_version = old_data['metadata']['component']['version']
-            if not 'metadata' in input_data:
+            if 'metadata' not in input_data:
                 input_data['metadata'] = dict()
-            if not 'component' in input_data['metadata']:
+            if 'component' not in input_data['metadata']:
                 input_data['metadata']['component'] = dict()
-            if not 'version' in input_data['metadata']['component']:
+            if 'version' not in input_data['metadata']['component']:
                 logging.info(f"перенос версии продукта: {old_version}")
                 logging.info('-'*50)
                 input_data['metadata']['component']['version'] = old_version
         if 'metadata' in old_data and 'component' in old_data['metadata'] and 'manufacturer' in old_data['metadata']['component'] and \
             'name' in old_data['metadata']['component']['manufacturer']:
             old_manufacturer = old_data['metadata']['component']['manufacturer']['name']
-            if not 'metadata' in input_data:
+            if 'metadata' not in input_data:
                 input_data['metadata'] = dict()
-            if not 'component' in input_data['metadata']:
+            if 'component' not in input_data['metadata']:
                 input_data['metadata']['component'] = dict()
-            if not 'manufacturer' in input_data['metadata']['component']:
+            if 'manufacturer' not in input_data['metadata']['component']:
                 input_data['metadata']['component']['manufacturer'] = dict()
-            if not 'name' in input_data['metadata']['component']['manufacturer']:
+            if 'name' not in input_data['metadata']['component']['manufacturer']:
                 logging.info(f"перенос названия организации: {old_manufacturer}")
                 logging.info('-'*50)
                 input_data['metadata']['component']['manufacturer']['name'] = old_manufacturer
 
     if 'metadata' in input_data:
-        input_data['metadata']['timestamp'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        input_data['metadata']['timestamp'] = datetime.datetime.now(datetime.UTC).isoformat()
     if 'version' in input_data:
         input_data['version'] += 1
     with open(args.output, 'w', encoding=encoding) as f:

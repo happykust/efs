@@ -4,15 +4,14 @@
 
 import concurrent.futures
 import json
-import jsonschema
 import logging
 from pathlib import Path
-import re
-from referencing import Registry, Resource
 
+import jsonschema
+from referencing import Registry, Resource
 from requests import Session
 
-from .utils import check_repo, opener, parse_repo_url, load_cache, dump_cache, is_archive_url, get_prop
+from .utils import check_repo, dump_cache, get_prop, is_archive_url, load_cache, opener, parse_repo_url
 
 _PKG_DIR = Path(__file__).parent.resolve()
 
@@ -53,11 +52,10 @@ def run(args):
         for err in errors:
             count += 1
             if err.message.endswith(' has non-unique elements'):
-                p = re.compile('(?<!\\\\)\'')
                 arr = err.instance
                 dups = []
                 for n, i in enumerate(arr):
-                    if i in arr[n+1:] and not i in dups:
+                    if i in arr[n+1:] and i not in dups:
                         dups.append(i)
                 inst = ''
                 for line in str(err).split('\n'):
@@ -135,22 +133,22 @@ def run(args):
                 if args.check_vcs_leaf_only and components_value:
                     continue
                 refs = component.get('externalReferences', [])
-                if type(refs) == list:
+                if isinstance(refs, list):
                     for ref in refs:
-                        if type(ref) == dict and ref.get('type', '') == 'vcs':
+                        if isinstance(ref, dict) and ref.get('type', '') == 'vcs':
                             url = ref.get('url', '')
                             res = parse_repo_url(url)
                             if res and res[1]:
                                 url = res[0]
                             ex_str = ''
-                            if not url in repo_dict:
-                                if not url in refs_to_check:
+                            if url not in repo_dict:
+                                if url not in refs_to_check:
                                     refs_to_check[url] = set()
                                 refs_to_check[url].add(ref.get('url', ''))
                         if args.check_source_distribution:
-                            if type(ref) == dict and ref.get('type', '') == 'source-distribution':
+                            if isinstance(ref, dict) and ref.get('type', '') == 'source-distribution':
                                 url = ref.get('url', '')
-                                if not url in src_results:
+                                if url not in src_results:
                                     src_list.add(url)
             session = Session()
             with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -165,7 +163,7 @@ def run(args):
                             src_results[url], ex_str = future.result()
                     except Exception as exc:
                         count += 1
-                        print('ERROR: %r generated an exception: %s' % (url, exc))
+                        print(f'ERROR: {url!r} generated an exception: {exc}')
                     else:
                         if ref_type == 'vcs' and not repo_dict[url]:
                             not_repos += len(refs_to_check[url])

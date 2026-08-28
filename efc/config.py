@@ -177,7 +177,6 @@ def config_to_purl_to_vcs(config):
 
 def config_to_purl_to_gost(config):
     """Конвертировать конфиг в формат purl_to_gost (для обратной совместимости)."""
-    defaults = config.get('defaults', {})
     result = {
         'GOST:attack_surface': {},
         'GOST:security_function': {},

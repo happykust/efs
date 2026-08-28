@@ -4,7 +4,7 @@
 
 import csv
 
-from .utils import opener, get_prop, combine_source_langs
+from .utils import combine_source_langs, get_prop, opener
 
 
 def run(args):
@@ -36,9 +36,11 @@ def run(args):
         special_function = {"GOST:attack_surface":"yes/indirect/no", "GOST:security_function":"yes/indirect/no"}
         props = component.get('properties', [])
         attack_surface = get_prop(props, 'GOST:attack_surface')
-        if attack_surface in ['yes', 'indirect', 'no']: special_function["GOST:attack_surface"] = attack_surface
+        if attack_surface in ['yes', 'indirect', 'no']:
+            special_function["GOST:attack_surface"] = attack_surface
         security_function = get_prop(props, 'GOST:security_function')
-        if security_function in ['yes', 'indirect', 'no']: special_function["GOST:security_function"] = security_function
+        if security_function in ['yes', 'indirect', 'no']:
+            special_function["GOST:security_function"] = security_function
         element = (component['name'], component['version'], combine_source_langs(get_prop(props, 'GOST:source_langs'), get_prop(props, 'source_langs')), str(special_function), urls)
         if element in added_elements:
             continue

@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from types import SimpleNamespace
-from typing import Optional
 
 import typer
 
@@ -75,20 +74,20 @@ def cmd_check(
 @app.command("update", help="Обогащение SBOM")
 def cmd_update(
     input_: str = typer.Argument(..., metavar="INPUT", help="входной файл CycloneDX JSON"),
-    output: Optional[str] = typer.Argument(None, help="выходной файл с дооформленным перечнем"),
+    output: str | None = typer.Argument(None, help="выходной файл с дооформленным перечнем"),
     props: bool = typer.Option(False, "--props", help="добавить GOST:attack_surface и GOST:security_function"),
-    app_name: Optional[str] = typer.Option(None, "--app-name", help="название продукта"),
-    app_version: Optional[str] = typer.Option(None, "--app-version", help="версия продукта"),
-    manufacturer: Optional[str] = typer.Option(None, "--manufacturer", help="организация-изготовитель"),
+    app_name: str | None = typer.Option(None, "--app-name", help="название продукта"),
+    app_version: str | None = typer.Option(None, "--app-version", help="версия продукта"),
+    manufacturer: str | None = typer.Option(None, "--manufacturer", help="организация-изготовитель"),
     ref: bool = typer.Option(False, "--ref", help="установить externalReferences на основе purl"),
-    purl_to_vcs: Optional[str] = typer.Option(None, "--purl-to-vcs", help="путь к файлу маппинга purl→vcs"),
+    purl_to_vcs: str | None = typer.Option(None, "--purl-to-vcs", help="путь к файлу маппинга purl→vcs"),
     gost: bool = typer.Option(False, "--gost", help="установить GOST-свойства из файла маппинга"),
-    purl_to_gost: Optional[str] = typer.Option(None, "--purl-to-gost", help="путь к файлу маппинга purl→GOST"),
+    purl_to_gost: str | None = typer.Option(None, "--purl-to-gost", help="путь к файлу маппинга purl→GOST"),
     init_gost_map: bool = typer.Option(False, "--init-gost-map", help="сгенерировать шаблон .purl_to_gost.json"),
     init_purl_map: bool = typer.Option(False, "--init-purl-map", help="сгенерировать шаблон .purl_to_vcs.json"),
-    extra_input: Optional[list[str]] = typer.Option(None, "-i", "--extra-input", help="дополнительные SBOM-файлы для --init-purl-map / --init-gost-map"),
+    extra_input: list[str] | None = typer.Option(None, "-i", "--extra-input", help="дополнительные SBOM-файлы для --init-purl-map / --init-gost-map"),
     fix_all: bool = typer.Option(False, "--fix-all", help="применить все опции"),
-    update: Optional[str] = typer.Option(None, "--update", metavar="OLD_SBOM", help="предыдущая версия перечня"),
+    update: str | None = typer.Option(None, "--update", metavar="OLD_SBOM", help="предыдущая версия перечня"),
 ):
     from efc.updater import run
 
@@ -187,19 +186,19 @@ def cmd_export_odt(
 def cmd_postprocess(
     input_: str = typer.Argument(..., metavar="INPUT", help="входной BOM файл (JSON)"),
     output: str = typer.Argument(..., help="выходной BOM файл (JSON)"),
-    app_name: Optional[str] = typer.Option(None, "--app-name", help="название продукта"),
-    app_version: Optional[str] = typer.Option(None, "--app-version", help="версия продукта"),
-    manufacturer: Optional[str] = typer.Option(None, "--manufacturer", help="организация-изготовитель"),
+    app_name: str | None = typer.Option(None, "--app-name", help="название продукта"),
+    app_version: str | None = typer.Option(None, "--app-version", help="версия продукта"),
+    manufacturer: str | None = typer.Option(None, "--manufacturer", help="организация-изготовитель"),
     gost_default: str = typer.Option("no", "--gost-default", help="значение ГОСТ-свойств по умолчанию (yes/no/indirect)"),
     strip_only: bool = typer.Option(False, "--strip-only", help="только очистить лишние поля"),
     keep_all_fields: bool = typer.Option(False, "--keep-all-fields", help="не удалять необязательные поля компонентов"),
-    provided_by: Optional[str] = typer.Option(None, "--provided-by", help="установить GOST:provided_by для leaf-компонентов"),
-    purl_to_vcs: Optional[str] = typer.Option(None, "--purl-to-vcs", help="путь к файлу маппинга purl→vcs"),
-    purl_to_gost: Optional[str] = typer.Option(None, "--purl-to-gost", help="путь к файлу маппинга purl→GOST"),
-    purl_exclude: Optional[str] = typer.Option(None, "--purl-exclude", help="путь к файлу списка purl для исключения (.purl_exclude.json)"),
+    provided_by: str | None = typer.Option(None, "--provided-by", help="установить GOST:provided_by для leaf-компонентов"),
+    purl_to_vcs: str | None = typer.Option(None, "--purl-to-vcs", help="путь к файлу маппинга purl→vcs"),
+    purl_to_gost: str | None = typer.Option(None, "--purl-to-gost", help="путь к файлу маппинга purl→GOST"),
+    purl_exclude: str | None = typer.Option(None, "--purl-exclude", help="путь к файлу списка purl для исключения (.purl_exclude.json)"),
     init_exclude: bool = typer.Option(False, "--init-exclude", help="сгенерировать шаблон .purl_exclude.json из входного BOM и выйти"),
     pretty: bool = typer.Option(True, "--pretty/--no-pretty", help="форматировать JSON"),
-    config: Optional[str] = typer.Option(None, "--config", help="путь к .sbom-config.json (по умолчанию ищется в текущей директории)"),
+    config: str | None = typer.Option(None, "--config", help="путь к .sbom-config.json (по умолчанию ищется в текущей директории)"),
 ):
     from efc.postprocess import run
 
@@ -233,13 +232,13 @@ def cmd_postprocess(
 
 @app.command("scan", help="Генерация SBOM с помощью cdxgen или trivy")
 def cmd_scan(
-    tool: Optional[str] = typer.Option(None, "--tool", help="инструмент: cdxgen | trivy"),
-    target: Optional[str] = typer.Option(None, "--target", help="путь или образ для сканирования"),
-    output: Optional[str] = typer.Option(None, "--output", "-o", help="выходной файл SBOM"),
-    config: Optional[str] = typer.Option(None, "--config", help="путь к .sbom-config.json"),
+    tool: str | None = typer.Option(None, "--tool", help="инструмент: cdxgen | trivy"),
+    target: str | None = typer.Option(None, "--target", help="путь или образ для сканирования"),
+    output: str | None = typer.Option(None, "--output", "-o", help="выходной файл SBOM"),
+    config: str | None = typer.Option(None, "--config", help="путь к .sbom-config.json"),
 ):
-    from efc.config import load_config, get_scanner_config
-    from efc.scanner import run_scan, SUPPORTED_TOOLS
+    from efc.config import get_scanner_config, load_config
+    from efc.scanner import SUPPORTED_TOOLS, run_scan
 
     cfg = load_config(config)
 
@@ -272,13 +271,15 @@ def cmd_scan(
 
 @config_app.command("find-vcs", help="Найти VCS-ссылки для компонентов конфига без VCS (исключая exclude и provided_by)")
 def cmd_config_find_vcs(
-    config_path: Optional[str] = typer.Option(None, "--config", "-c", help="путь к .sbom-config.json"),
+    config_path: str | None = typer.Option(None, "--config", "-c", help="путь к .sbom-config.json"),
     workers: int = typer.Option(8, "--workers", "-w", help="число параллельных потоков"),
 ):
     import json
+
     from rich.console import Console
-    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, MofNCompleteColumn
-    from efc.config import load_config, _purl_without_version
+    from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn
+
+    from efc.config import load_config
 
     console = Console()
 
@@ -364,12 +365,12 @@ def cmd_config_find_vcs(
 
 @config_app.command("status", help="Показать компоненты конфига, для которых не хватает VCS, provided_by или GOST-свойств")
 def cmd_config_status(
-    config_path: Optional[str] = typer.Option(None, "--config", "-c", help="путь к .sbom-config.json"),
+    config_path: str | None = typer.Option(None, "--config", "-c", help="путь к .sbom-config.json"),
     show_all: bool = typer.Option(False, "--all", "-a", help="показать все компоненты, не только проблемные"),
 ):
-    import json
     from rich.console import Console
     from rich.table import Table
+
     from efc.config import load_config
 
     console = Console()
@@ -385,7 +386,6 @@ def cmd_config_status(
         return
 
     missing_vcs = []
-    missing_provided_by = []
     excluded = []
     has_vcs = []
     has_provided_by = []
@@ -435,9 +435,10 @@ def cmd_config_status(
 @config_app.command("init", help="Сгенерировать .sbom-config.json из одного или нескольких SBOM")
 def cmd_config_init(
     inputs: list[str] = typer.Argument(..., metavar="INPUT", help="входные файлы CycloneDX JSON (один или несколько)"),
-    output: Optional[str] = typer.Option(None, "-o", "--output", help="путь к выходному конфигу (по умолчанию .sbom-config.json)"),
+    output: str | None = typer.Option(None, "-o", "--output", help="путь к выходному конфигу (по умолчанию .sbom-config.json)"),
 ):
     import json
+
     from efc.config import init_config
 
     boms = []
@@ -450,10 +451,10 @@ def cmd_config_init(
 
 @config_app.command("migrate", help="Мигрировать старые файлы маппингов в .sbom-config.json")
 def cmd_config_migrate(
-    vcs: Optional[str] = typer.Option(None, "--vcs", help="путь к .purl_to_vcs.json"),
-    gost: Optional[str] = typer.Option(None, "--gost", help="путь к .purl_to_gost.json"),
-    exclude: Optional[str] = typer.Option(None, "--exclude", help="путь к .purl_exclude.json"),
-    output: Optional[str] = typer.Option(None, "-o", "--output", help="путь к выходному конфигу (по умолчанию .sbom-config.json)"),
+    vcs: str | None = typer.Option(None, "--vcs", help="путь к .purl_to_vcs.json"),
+    gost: str | None = typer.Option(None, "--gost", help="путь к .purl_to_gost.json"),
+    exclude: str | None = typer.Option(None, "--exclude", help="путь к .purl_exclude.json"),
+    output: str | None = typer.Option(None, "-o", "--output", help="путь к выходному конфигу (по умолчанию .sbom-config.json)"),
 ):
     from efc.config import migrate_config
 

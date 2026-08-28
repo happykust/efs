@@ -48,7 +48,7 @@ def run(args):
         for key in keys:
             if key in data:
                 new_data[key] = data[key]
-        if not 'properties' in new_data:
+        if 'properties' not in new_data:
             new_data['properties'] = []
         if not get_prop(new_data.get('properties', []), 'GOST:attack_surface'):
             new_data['properties'].append({
@@ -67,7 +67,7 @@ def run(args):
       "specVersion": "1.6",
       "version": 1,
       "metadata": {
-        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
         "component": {
             "type": "application",
             "name": args.app_name,

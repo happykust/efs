@@ -3,7 +3,6 @@
 
 """Тесты валидации SBOM по JSON Schema и проверок внешних ссылок."""
 
-import json
 from types import SimpleNamespace
 
 import pytest

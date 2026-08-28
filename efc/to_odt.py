@@ -2,13 +2,14 @@
 # SPDX-FileCopyrightText: 2026 Kirill Nikolaevskiy
 # SPDX-License-Identifier: Apache-2.0
 
-from odf.opendocument import load
-from odf.table import Table, TableRow, TableCell
-from odf.text import P
-from odf.style import TextProperties
 from pathlib import Path
 
-from .utils import opener, get_prop, combine_source_langs
+from odf.opendocument import load
+from odf.style import TextProperties
+from odf.table import Table, TableCell, TableRow
+from odf.text import P
+
+from .utils import combine_source_langs, get_prop, opener
 
 _PKG_DIR = Path(__file__).parent.resolve()
 
@@ -104,7 +105,7 @@ def run(args):
                     if 'components' in dep:
                         stack += dep['components']
                     value = dep.get('name', '') + ' ' + dep.get('version', '')
-                    if not value in deps:
+                    if value not in deps:
                         deps.append(value)
                 element = (comp.get('name', ''),
                            comp.get('description', ''),

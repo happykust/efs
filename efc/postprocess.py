@@ -24,15 +24,13 @@ from pathlib import Path
 from urllib.parse import unquote
 
 from efc.config import (
-    load_config,
-    config_to_purl_to_vcs,
-    config_to_purl_to_gost,
-    config_to_purl_exclude,
     apply_config_to_component,
-    get_pedigree,
-    get_manufacturer,
+    config_to_purl_exclude,
+    config_to_purl_to_gost,
+    config_to_purl_to_vcs,
     get_metadata_config,
-    is_excluded,
+    get_pedigree,
+    load_config,
 )
 
 _PURL_TO_VCS_FILENAME = '.purl_to_vcs.json'
@@ -196,7 +194,7 @@ def ensure_metadata(bom, app_name, app_version, manufacturer, config=None):
     meta = bom["metadata"]
 
     # timestamp
-    meta["timestamp"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    meta["timestamp"] = datetime.datetime.now(datetime.UTC).isoformat()
 
     # metadata.component
     if "component" not in meta:
@@ -763,4 +761,4 @@ def run(args):
             print(f"  ВНИМАНИЕ: metadata.component.{field} = TODO — нужно заполнить")
     mfr = meta_comp.get("manufacturer", {})
     if mfr.get("name") == "TODO":
-        print(f"  ВНИМАНИЕ: metadata.component.manufacturer.name = TODO — нужно заполнить")
+        print("  ВНИМАНИЕ: metadata.component.manufacturer.name = TODO — нужно заполнить")

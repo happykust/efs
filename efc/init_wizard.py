@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import questionary
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, MofNCompleteColumn
+from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn
 
 console = Console()
 

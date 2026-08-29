@@ -478,3 +478,45 @@ class TestVersionOption:
 
     def test_version_short_flag(self):
         assert runner.invoke(app, ["-V"]).exit_code == 0
+
+
+class TestScanWithoutConfig:
+    def test_explicit_arguments_scan_without_config(self, tmp_path, monkeypatch):
+        """Все параметры заданы — конфиг не нужен и мастер запускать не за чем."""
+        monkeypatch.chdir(tmp_path)
+        captured = {}
+        monkeypatch.setattr(
+            "efs.scanner.run_scan",
+            lambda tool, target, output, options=None: captured.update(tool=tool, target=target, output=output) or True,
+        )
+        monkeypatch.setattr("efs.init_wizard.run_wizard", lambda verbose=False: captured.update(wizard=True))
+
+        result = runner.invoke(app, ["scan", "--tool", "cdxgen", "--target", ".", "--output", "bom.json"])
+
+        assert result.exit_code == 0, result.output
+        assert captured["tool"] == "cdxgen"
+        assert "wizard" not in captured
+
+    def test_tool_alone_is_enough(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        captured = {}
+        monkeypatch.setattr(
+            "efs.scanner.run_scan",
+            lambda tool, target, output, options=None: captured.update(target=target, output=output) or True,
+        )
+        result = runner.invoke(app, ["scan", "--tool", "trivy"])
+        assert result.exit_code == 0, result.output
+        assert captured == {"target": ".", "output": "bom.json"}
+
+    def test_no_config_no_arguments_without_terminal_fails_clearly(self, tmp_path, monkeypatch):
+        """В CI мастер запускать нельзя: он падает на первом же вопросе."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+        started = []
+        monkeypatch.setattr("efs.init_wizard.run_wizard", lambda verbose=False: started.append(True))
+
+        result = runner.invoke(app, ["scan"])
+
+        assert result.exit_code != 0
+        assert started == []
+        assert "--tool" in result.output

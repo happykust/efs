@@ -295,15 +295,25 @@ def cmd_scan(
 
     cfg = load_config(config)
 
-    # Если конфига нет — запускаем init wizard
-    if cfg is None:
+    if cfg is None and not (tool or target or output):
+        # Ни конфига, ни аргументов: помочь может только мастер, но он требует терминала
+        import sys
+
+        if not sys.stdin.isatty():
+            typer.echo(
+                "ошибка: конфиг .efs-config.json не найден. Укажите --tool (и при необходимости "
+                "--target, --output) или создайте конфиг командой efs config init",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+
         typer.echo("Конфиг .efs-config.json не найден. Запускаем мастер инициализации...")
         from efs.init_wizard import run_wizard
 
         run_wizard(verbose=state["verbose"])
         return
 
-    scanner_cfg = get_scanner_config(cfg)
+    scanner_cfg = get_scanner_config(cfg or {})
 
     # CLI-флаги переопределяют конфиг
     scan_tool = _enum_value(tool) if tool else scanner_cfg.get("tool", "cdxgen")

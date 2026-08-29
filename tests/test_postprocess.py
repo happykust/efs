@@ -421,12 +421,24 @@ class TestDirectParentCountsAsKept:
 
     def _run(self, bom):
         args = SimpleNamespace(
-            input="", output="", app_name=None, app_version=None, manufacturer=None,
-            gost_default="no", strip_only=False, keep_all_fields=False, provided_by=None,
-            purl_to_vcs=None, purl_to_gost=None, purl_exclude=None, config=None, pretty=True,
+            input="",
+            output="",
+            app_name=None,
+            app_version=None,
+            manufacturer=None,
+            gost_default="no",
+            strip_only=False,
+            keep_all_fields=False,
+            provided_by=None,
+            purl_to_vcs=None,
+            purl_to_gost=None,
+            purl_exclude=None,
+            config=None,
+            pretty=True,
         )
         return process_bom(
-            bom, args,
+            bom,
+            args,
             purl_exclude=["pkg:npm/nomnom"],
             purl_exclude_direct=["pkg:npm/our-preset"],
         )

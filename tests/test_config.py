@@ -427,3 +427,116 @@ class TestPurlNormalization:
         cfg = {"components": {"pkg:npm/@superset-ui/core": {"exclude": True}}}
         assert is_excluded(cfg, "pkg:npm/@superset-ui/core@0.20.4") is True
         assert is_excluded(cfg, "pkg:npm/lodash@4.17.21") is False
+
+
+class TestVersionSpecificEntries:
+    """Форк конкретной версии: точечная запись должна побеждать общую."""
+
+    def _config(self):
+        return {
+            "components": {
+                "pkg:pypi/cryptography": {"vcs": "https://github.com/pyca/cryptography", "attack_surface": "no"},
+                "pkg:pypi/cryptography@42.0.0": {
+                    "vcs": "https://github.com/our-org/cryptography-fork",
+                    "attack_surface": "yes",
+                },
+            }
+        }
+
+    def test_exact_version_wins_over_generic(self):
+        assert get_vcs(self._config(), "pkg:pypi/cryptography@42.0.0").endswith("cryptography-fork")
+
+    def test_other_version_uses_generic(self):
+        assert get_vcs(self._config(), "pkg:pypi/cryptography@41.0.0").endswith("pyca/cryptography")
+
+    def test_gost_prop_follows_same_priority(self):
+        cfg = self._config()
+        assert get_gost_prop(cfg, "pkg:pypi/cryptography@42.0.0", "GOST:attack_surface") == "yes"
+        assert get_gost_prop(cfg, "pkg:pypi/cryptography@41.0.0", "GOST:attack_surface") == "no"
+
+    def test_init_keeps_version_specific_entry(self, tmp_path, monkeypatch, write_json):
+        """config init не должен стирать ручную настройку для конкретной версии."""
+        write_json(".efs-config.json", self._config())
+        monkeypatch.chdir(tmp_path)
+        init_config(make_bom([make_component("cryptography", "42.0.0")]))
+        components = json.loads((tmp_path / ".efs-config.json").read_text(encoding="utf-8"))["components"]
+        assert "pkg:pypi/cryptography@42.0.0" in components
+        assert components["pkg:pypi/cryptography@42.0.0"]["vcs"].endswith("cryptography-fork")
+
+    def test_init_removes_components_absent_from_sbom(self, tmp_path, monkeypatch, write_json):
+        write_json(".efs-config.json", {"components": {"pkg:npm/исчезнувший": {"vcs": "https://x"}}})
+        monkeypatch.chdir(tmp_path)
+        init_config(make_bom([make_component("requests", "2.32.5")]))
+        components = json.loads((tmp_path / ".efs-config.json").read_text(encoding="utf-8"))["components"]
+        assert "pkg:npm/исчезнувший" not in components
+
+
+class TestDefaultsApplication:
+    def test_defaults_reach_components_absent_from_config(self):
+        """«Хвост» зависимостей без своих записей должен получать значения из defaults."""
+        cfg = {"defaults": {"attack_surface": "yes", "provided_by": "ООО Умолчание"}}
+        comp = make_component("requests", "2.32.5")
+        apply_config_to_component(comp, cfg)
+        props = {p["name"]: p["value"] for p in comp["properties"]}
+        assert props["GOST:attack_surface"] == "yes"
+        assert props["GOST:provided_by"] == "ООО Умолчание"
+
+    def test_empty_config_adds_no_gost_properties(self):
+        """Без конфига и defaults ГОСТ-значения не выдумываются — их проставит постобработка."""
+        comp = make_component("curl", "7.88.1", purl="pkg:deb/debian/curl@7.88.1")
+        apply_config_to_component(comp, {})
+        names = {p["name"] for p in comp.get("properties", [])}
+        assert "GOST:attack_surface" not in names
+
+    def test_explicit_empty_value_is_not_overridden_by_defaults(self):
+        cfg = {"defaults": {"provided_by": "ООО Умолчание"}, "components": {"pkg:pypi/requests": {"provided_by": ""}}}
+        assert get_gost_prop(cfg, "pkg:pypi/requests@2.32.5", "GOST:provided_by") == ""
+
+    def test_provided_by_default_argument_applied(self):
+        """Аргумент --provided-by доходит до компонента."""
+        comp = make_component("requests", "2.32.5")
+        apply_config_to_component(comp, {"components": {"pkg:pypi/requests": {}}}, provided_by_default="ООО Поставщик")
+        props = {p["name"]: p["value"] for p in comp["properties"]}
+        assert props["GOST:provided_by"] == "ООО Поставщик"
+
+
+class TestGostValueValidation:
+    @pytest.mark.parametrize("prop", ["attack_surface", "security_function"])
+    def test_invalid_value_replaced_for_both_props(self, prop):
+        cfg = {"components": {"pkg:pypi/x": {prop: "ДА"}}}
+        comp = make_component("x", "1.0")
+        apply_config_to_component(comp, cfg)
+        props = {p["name"]: p["value"] for p in comp["properties"]}
+        assert props[f"GOST:{prop}"] == "no"
+
+    @pytest.mark.parametrize("prop", ["attack_surface", "security_function"])
+    def test_indirect_accepted_from_config(self, prop):
+        cfg = {"components": {"pkg:pypi/x": {prop: "indirect"}}}
+        comp = make_component("x", "1.0")
+        apply_config_to_component(comp, cfg)
+        props = {p["name"]: p["value"] for p in comp["properties"]}
+        assert props[f"GOST:{prop}"] == "indirect"
+
+    def test_default_no_for_both_props(self):
+        for name in ("GOST:attack_surface", "GOST:security_function"):
+            assert get_gost_prop({}, "pkg:pypi/x@1.0", name) == "no"
+
+
+class TestMigrationSafety:
+    def test_existing_vcs_not_overwritten(self, tmp_path, monkeypatch, write_json):
+        """Миграция не должна затирать выверенные вручную ссылки старым файлом."""
+        write_json(".efs-config.json", {"components": {"pkg:pypi/requests": {"vcs": "https://наш/репозиторий"}}})
+        write_json(".purl_to_vcs.json", {"pkg:pypi/requests": "https://старый/мусор"})
+        monkeypatch.chdir(tmp_path)
+        migrate_config()
+        components = json.loads((tmp_path / ".efs-config.json").read_text(encoding="utf-8"))["components"]
+        assert components["pkg:pypi/requests"]["vcs"] == "https://наш/репозиторий"
+
+    def test_default_gost_values_not_migrated(self, tmp_path, monkeypatch, write_json):
+        """Значения по умолчанию не переносятся — конфиг остаётся компактным."""
+        write_json(".purl_to_gost.json", {"GOST:attack_surface": {"pkg:pypi/a": "no", "pkg:pypi/b": "yes"}})
+        monkeypatch.chdir(tmp_path)
+        migrate_config()
+        components = json.loads((tmp_path / ".efs-config.json").read_text(encoding="utf-8"))["components"]
+        assert "pkg:pypi/b" in components
+        assert "pkg:pypi/a" not in components

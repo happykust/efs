@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: 2026 Kirill Nikolaevskiy
 # SPDX-License-Identifier: Apache-2.0
 
+import json
+
 """Тесты постобработки SBOM: purl-матчинг, исключения, очистка полей, metadata."""
 
 from types import SimpleNamespace
@@ -9,6 +11,7 @@ import pytest
 
 from efs.postprocess import (
     COMPONENT_STRIP_FIELDS,
+    ROOT_STRIP_FIELDS,
     _exclude_direct,
     _purl_matches_exclude,
     _purl_without_version,
@@ -16,7 +19,10 @@ from efs.postprocess import (
     _split_exclude,
     ensure_metadata,
     exclude_components,
+    ensure_root,
     process_bom,
+    run,
+    strip_root,
     strip_component,
 )
 
@@ -728,3 +734,144 @@ class TestMetadataPrecedence:
         config = {"metadata": {"name": "Из конфига"}}
         ensure_metadata(bom, None, None, None, config=config)
         assert bom["metadata"]["component"]["name"] == "Из конфига"
+
+
+class TestPurlVariants:
+    @pytest.mark.parametrize(
+        ("purl", "expected"),
+        [
+            ("pkg:golang/github.com/gin-gonic/gin@v1.9.1", "pkg:golang/github.com/gin-gonic/gin"),
+            ("pkg:npm/@2toad/profanity@2.0.0", "pkg:npm/@2toad/profanity"),
+            ("pkg:npm/@v8/tools@1.0.0", "pkg:npm/@v8/tools"),
+            ("pkg:npm/ajv@8.20.0?arch=x64", "pkg:npm/ajv"),
+            ("pkg:npm/ajv?arch=x64", "pkg:npm/ajv"),
+            ("pkg:npm/chalk@2.4.2/ansi-styles@3.2.1", "pkg:npm/chalk@2.4.2/ansi-styles"),
+            ("pkg:npm/@2toad/profanity", "pkg:npm/@2toad/profanity"),
+            ("pkg:npm/@v8/tools", "pkg:npm/@v8/tools"),
+        ],
+    )
+    def test_version_stripped_correctly(self, purl, expected):
+        assert _purl_without_version(purl) == expected
+
+    def test_encoded_scope_in_exclude_key_matches(self):
+        """Ключ конфига может быть записан в закодированной форме."""
+        bom = make_bom([make_component("runtime", "7.9.0", purl="pkg:npm/@babel/runtime@7.9.0")])
+        assert exclude_components(bom, ["pkg:npm/%40babel/runtime"]) == 1
+
+    def test_qualifier_does_not_break_exclude(self):
+        bom = make_bom([make_component("ajv", "8.20.0", purl="pkg:npm/ajv@8.20.0?arch=x64")])
+        assert exclude_components(bom, ["pkg:npm/ajv"]) == 1
+
+
+class TestGostDeduplication:
+    def _component(self, values):
+        return make_component(
+            "requests",
+            "2.32.5",
+            properties=[{"name": "GOST:attack_surface", "value": v} for v in values],
+        )
+
+    def test_three_duplicates_collapse_to_first_valid(self):
+        comp = self._component(["yes", "indirect", "no"])
+        strip_component(comp, COMPONENT_STRIP_FIELDS, "no")
+        values = [p["value"] for p in comp["properties"] if p["name"] == "GOST:attack_surface"]
+        assert values == ["yes"]
+
+    def test_second_property_of_other_kind_survives(self):
+        comp = make_component(
+            "requests",
+            "2.32.5",
+            properties=[
+                {"name": "GOST:attack_surface", "value": "yes"},
+                {"name": "GOST:attack_surface", "value": "no"},
+                {"name": "GOST:security_function", "value": "indirect"},
+            ],
+        )
+        strip_component(comp, COMPONENT_STRIP_FIELDS, "no")
+        props = {p["name"]: p["value"] for p in comp["properties"]}
+        assert props["GOST:attack_surface"] == "yes"
+        assert props["GOST:security_function"] == "indirect"
+
+
+class TestDocumentRoot:
+    def test_version_normalised_to_integer(self):
+        bom = {"version": "3"}
+        ensure_root(bom)
+        assert bom["version"] == 1
+
+    def test_spec_version_is_16(self):
+        bom = {}
+        ensure_root(bom)
+        assert bom["specVersion"] == "1.6"
+
+    def test_non_empty_root_sections_kept(self):
+        """Сведения об уязвимостях нельзя терять при очистке корня."""
+        bom = make_bom([], vulnerabilities=[{"id": "CVE-2024-0001"}], services=[])
+        strip_root(bom, ROOT_STRIP_FIELDS)
+        assert bom["vulnerabilities"] == [{"id": "CVE-2024-0001"}]
+        assert "services" not in bom
+
+
+class TestNestedExclusion:
+    def _bom(self):
+        inner = make_component("вложенный", "1.0", purl="pkg:npm/inner@1.0")
+        inner["bom-ref"] = "ref-inner"
+        outer = make_component("внешний", "1.0", purl="pkg:npm/outer@1.0")
+        outer["bom-ref"] = "ref-outer"
+        outer["components"] = [inner]
+        return make_bom([outer])
+
+    def test_nested_component_excluded_by_purl(self):
+        """bom-ref у cdxgen не совпадает с purl — исключение всё равно должно сработать."""
+        bom = self._bom()
+        assert exclude_components(bom, ["pkg:npm/inner"]) == 1
+        assert bom["components"][0].get("components", []) == []
+
+    def test_outer_component_survives(self):
+        bom = self._bom()
+        exclude_components(bom, ["pkg:npm/inner"])
+        assert [c["name"] for c in bom["components"]] == ["внешний"]
+
+    def test_nested_component_counted_in_config_autofill(self, tmp_path, monkeypatch, write_json):
+        write_json(".efs-config.json", {"components": {}})
+        monkeypatch.chdir(tmp_path)
+        bom = self._bom()
+        (tmp_path / "bom.json").write_text(json.dumps(bom, ensure_ascii=False), encoding="utf-8")
+        run(
+            SimpleNamespace(
+                input=str(tmp_path / "bom.json"),
+                output=str(tmp_path / "out.json"),
+                app_name="П",
+                app_version="1",
+                manufacturer="ООО",
+                gost_default="no",
+                strip_only=False,
+                keep_all_fields=False,
+                provided_by=None,
+                purl_to_vcs=None,
+                purl_to_gost=None,
+                purl_exclude=None,
+                config=None,
+                pretty=True,
+            )
+        )
+        config = json.loads((tmp_path / ".efs-config.json").read_text(encoding="utf-8"))
+        assert "pkg:npm/inner" in config["components"]
+
+
+class TestManifestRootLoop:
+    def test_root_does_not_depend_on_itself(self):
+        bom = make_bom(
+            [
+                {"bom-ref": "manifest-1", "type": "application", "name": "package-lock.json"},
+                make_component("lodash", "1.0", purl="pkg:npm/lodash@1.0"),
+            ],
+            dependencies=[
+                {"ref": "root", "dependsOn": ["manifest-1"]},
+                {"ref": "manifest-1", "dependsOn": ["root", "pkg:npm/lodash@1.0"]},
+            ],
+        )
+        bom["metadata"]["component"]["bom-ref"] = "root"
+        _remove_manifest_components(bom)
+        root_deps = next(d["dependsOn"] for d in bom["dependencies"] if d["ref"] == "root")
+        assert "root" not in root_deps

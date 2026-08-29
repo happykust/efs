@@ -1,6 +1,6 @@
 [project]
 name = "efs-sbom"
-version = "1.0.3"
+version = "1.0.4"
 description = "Easy FSTEC SBOMs — генерация, проверка и обогащение SBOM (CycloneDX) под требования ФСТЭК и ГОСТ Р 56939-2024"
 readme = "README.md"
 requires-python = ">=3.12"

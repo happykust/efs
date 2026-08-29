@@ -573,9 +573,29 @@ def _remove_manifest_components(bom):
         bom["components"] = kept
         deps = bom.get("dependencies", [])
         if deps:
+            # Манифест перечисляет прямые зависимости продукта. Удаляя его как
+            # компонент, переносим эти связи на корень BOM — иначе пакеты остаются
+            # без единого неисключённого родителя и каскад принимает их за ненужные.
+            root_ref = bom.get("metadata", {}).get("component", {}).get("bom-ref", "")
+            inherited = []
+            for entry in deps:
+                if entry.get("ref", "") in manifest_refs:
+                    inherited.extend(entry.get("dependsOn", []))
+
             bom["dependencies"] = [d for d in deps if d.get("ref", "") not in manifest_refs]
             for entry in bom["dependencies"]:
                 entry["dependsOn"] = [d for d in entry.get("dependsOn", []) if d not in manifest_refs]
+
+            if root_ref and inherited:
+                root_entry = next((d for d in bom["dependencies"] if d.get("ref") == root_ref), None)
+                if root_entry is None:
+                    root_entry = {"ref": root_ref, "dependsOn": []}
+                    bom["dependencies"].insert(0, root_entry)
+                known = set(root_entry.setdefault("dependsOn", []))
+                for dep in inherited:
+                    if dep not in known and dep != root_ref:
+                        root_entry["dependsOn"].append(dep)
+                        known.add(dep)
 
     return n_removed
 

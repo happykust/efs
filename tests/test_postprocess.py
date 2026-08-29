@@ -457,3 +457,48 @@ class TestDirectParentCountsAsKept:
     def test_unrelated_component_untouched(self):
         bom = self._run(self._bom())
         assert "lodash" in [c["name"] for c in bom["components"]]
+
+
+class TestManifestEdgesMovedToRoot:
+    def _bom(self):
+        def comp(name):
+            return make_component(name, "1.0", purl=f"pkg:npm/{name}@1.0")
+
+        def ref(name):
+            return f"pkg:npm/{name}@1.0"
+
+        bom = make_bom(
+            [
+                {"bom-ref": "manifest-1", "type": "application", "name": "package-lock.json"},
+                comp("storybook-builder"),
+                comp("css-loader"),
+            ],
+            dependencies=[
+                {"ref": "manifest-1", "dependsOn": [ref("css-loader"), ref("storybook-builder")]},
+                {"ref": ref("storybook-builder"), "dependsOn": [ref("css-loader")]},
+                {"ref": ref("css-loader"), "dependsOn": []},
+            ],
+        )
+        bom["metadata"]["component"]["bom-ref"] = "root"
+        bom["dependencies"].insert(0, {"ref": "root", "dependsOn": ["manifest-1"]})
+        return bom
+
+    def test_root_inherits_manifest_dependencies(self):
+        """Манифест перечислял прямые зависимости продукта — после его удаления их держит корень."""
+        bom = self._bom()
+        _remove_manifest_components(bom)
+        root_deps = next(d["dependsOn"] for d in bom["dependencies"] if d["ref"] == "root")
+        assert sorted(root_deps) == ["pkg:npm/css-loader@1.0", "pkg:npm/storybook-builder@1.0"]
+
+    def test_dependency_of_manifest_survives_cascade(self):
+        """css-loader держали манифест и storybook: манифест удалён, но продукт пакет поставляет."""
+        bom = self._bom()
+        _remove_manifest_components(bom)
+        exclude_components(bom, ["pkg:npm/storybook-builder"])
+        assert "css-loader" in [c["name"] for c in bom["components"]]
+
+    def test_manifest_itself_gone(self):
+        bom = self._bom()
+        _remove_manifest_components(bom)
+        assert "package-lock.json" not in [c["name"] for c in bom["components"]]
+        assert all(d["ref"] != "manifest-1" for d in bom["dependencies"])

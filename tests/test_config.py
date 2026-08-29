@@ -11,6 +11,7 @@ from efs.config import _purl_without_version as config_purl_without_version
 from efs.config import (
     apply_config_to_component,
     config_to_purl_exclude,
+    config_to_purl_keep,
     config_to_purl_to_gost,
     config_to_purl_to_vcs,
     get_gost_prop,
@@ -622,3 +623,41 @@ class TestMigrationCleanup:
         migrate_config()
         components = json.loads((tmp_path / ".efs-config.json").read_text(encoding="utf-8"))["components"]
         assert components == {}
+
+
+class TestConfigToPurlKeep:
+    """Явный `exclude: false` собирается в отдельный список «оставить принудительно»."""
+
+    def test_explicit_false_goes_to_keep(self):
+        config = {"components": {"pkg:npm/assert": {"exclude": False}}}
+        assert config_to_purl_keep(config) == ["pkg:npm/assert"]
+
+    def test_missing_key_is_not_keep(self):
+        config = {"components": {"pkg:npm/assert": {"source_langs": ["JavaScript"]}}}
+        assert config_to_purl_keep(config) == []
+
+    def test_excluded_entries_are_not_keep(self):
+        config = {"components": {"pkg:npm/a": {"exclude": True}, "pkg:npm/b": {"exclude": "direct"}}}
+        assert config_to_purl_keep(config) == []
+
+    def test_zero_is_not_treated_as_keep(self):
+        """Только настоящий false — приказ оставить; 0 и пустая строка означают «не решали»."""
+        config = {"components": {"pkg:npm/a": {"exclude": 0}, "pkg:npm/b": {"exclude": ""}}}
+        assert config_to_purl_keep(config) == []
+
+    def test_non_dict_entry_ignored(self):
+        assert config_to_purl_keep({"components": {"pkg:npm/a": "мусор"}}) == []
+
+    def test_empty_config(self):
+        assert config_to_purl_keep({}) == []
+
+    def test_keep_and_exclude_split_independently(self):
+        config = {
+            "components": {
+                "pkg:npm/own": {"exclude": True},
+                "pkg:npm/tool": {"exclude": "direct"},
+                "pkg:npm/assert": {"exclude": False},
+            }
+        }
+        assert config_to_purl_exclude(config) == (["pkg:npm/own"], ["pkg:npm/tool"])
+        assert config_to_purl_keep(config) == ["pkg:npm/assert"]

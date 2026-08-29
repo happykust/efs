@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from efs import __version__
 from efs.postprocess import (
     COMPONENT_STRIP_FIELDS,
     ROOT_STRIP_FIELDS,
@@ -26,7 +27,7 @@ from efs.postprocess import (
     strip_root,
 )
 
-from .conftest import make_bom, make_component
+from .conftest import make_bom, make_component, postprocess_args
 
 
 class TestPurlWithoutVersion:
@@ -510,27 +511,6 @@ class TestManifestEdgesMovedToRoot:
         assert all(d["ref"] != "manifest-1" for d in bom["dependencies"])
 
 
-def postprocess_args(**overrides):
-    base = {
-        "input": "",
-        "output": "",
-        "app_name": None,
-        "app_version": None,
-        "manufacturer": None,
-        "gost_default": "no",
-        "strip_only": False,
-        "keep_all_fields": False,
-        "provided_by": None,
-        "purl_to_vcs": None,
-        "purl_to_gost": None,
-        "purl_exclude": None,
-        "config": None,
-        "pretty": True,
-    }
-    base.update(overrides)
-    return SimpleNamespace(**base)
-
-
 class TestProcessBomAsWhole:
     """Проводка внутри process_bom: флаги и порядок шагов, а не отдельные функции."""
 
@@ -875,3 +855,174 @@ class TestManifestRootLoop:
         _remove_manifest_components(bom)
         root_deps = next(d["dependsOn"] for d in bom["dependencies"] if d["ref"] == "root")
         assert "root" not in root_deps
+
+
+class TestExcludeKeep:
+    """Явный `exclude: false` — приказ оставить компонент, даже если каскад забрал бы его."""
+
+    def _graph(self):
+        return make_bom(
+            [
+                make_component("own-module", "1.0.0", purl="pkg:npm/own-module@1.0.0"),
+                make_component("assert", "2.1.0", purl="pkg:npm/assert@2.1.0"),
+                make_component("url", "0.11.4", purl="pkg:npm/url@0.11.4"),
+            ],
+            dependencies=[
+                {"ref": "pkg:npm/own-module@1.0.0", "dependsOn": ["pkg:npm/assert@2.1.0", "pkg:npm/url@0.11.4"]},
+                {"ref": "pkg:npm/assert@2.1.0", "dependsOn": []},
+                {"ref": "pkg:npm/url@0.11.4", "dependsOn": []},
+            ],
+        )
+
+    def test_kept_component_survives_cascade(self):
+        bom = self._graph()
+        exclude_components(bom, ["pkg:npm/own-module"], ["pkg:npm/assert"])
+        assert sorted(c["name"] for c in bom["components"]) == ["assert"]
+
+    def test_kept_component_not_counted_as_removed(self):
+        bom = self._graph()
+        removed = exclude_components(bom, ["pkg:npm/own-module"], ["pkg:npm/assert"])
+        assert removed == 2
+
+    def test_several_kept_components(self):
+        bom = self._graph()
+        exclude_components(bom, ["pkg:npm/own-module"], ["pkg:npm/assert", "pkg:npm/url"])
+        assert sorted(c["name"] for c in bom["components"]) == ["assert", "url"]
+
+    def test_kept_component_stays_in_dependencies(self):
+        bom = self._graph()
+        exclude_components(bom, ["pkg:npm/own-module"], ["pkg:npm/assert"])
+        assert [d["ref"] for d in bom["dependencies"]] == ["pkg:npm/assert@2.1.0"]
+
+    def test_keep_wins_over_direct_match(self):
+        """Если purl попал и в exclude, и в keep, компонент остаётся."""
+        bom = make_bom([make_component("assert", "2.1.0", purl="pkg:npm/assert@2.1.0")])
+        removed = exclude_components(bom, ["pkg:npm/assert"], ["pkg:npm/assert"])
+        assert removed == 0
+        assert [c["name"] for c in bom["components"]] == ["assert"]
+
+    def test_keep_bare_purl_covers_any_version(self):
+        bom = self._graph()
+        exclude_components(bom, ["pkg:npm/own-module"], ["pkg:npm/assert"])
+        assert [c["version"] for c in bom["components"]] == ["2.1.0"]
+
+    def test_keep_versioned_purl_shields_only_that_version(self):
+        bom = make_bom(
+            [
+                make_component("own-module", "1.0.0", purl="pkg:npm/own-module@1.0.0"),
+                make_component("assert", "2.1.0", purl="pkg:npm/assert@2.1.0"),
+                make_component("assert", "1.0.0", purl="pkg:npm/assert@1.0.0"),
+            ],
+            dependencies=[
+                {"ref": "pkg:npm/own-module@1.0.0", "dependsOn": ["pkg:npm/assert@2.1.0", "pkg:npm/assert@1.0.0"]},
+                {"ref": "pkg:npm/assert@2.1.0", "dependsOn": []},
+                {"ref": "pkg:npm/assert@1.0.0", "dependsOn": []},
+            ],
+        )
+        exclude_components(bom, ["pkg:npm/own-module"], ["pkg:npm/assert@2.1.0"])
+        assert [c["version"] for c in bom["components"]] == ["2.1.0"]
+
+    def test_no_keep_list_behaves_as_before(self):
+        bom = self._graph()
+        exclude_components(bom, ["pkg:npm/own-module"])
+        assert bom["components"] == []
+
+    def test_keep_without_exclude_changes_nothing(self):
+        bom = self._graph()
+        assert exclude_components(bom, [], ["pkg:npm/assert"]) == 0
+        assert len(bom["components"]) == 3
+
+
+class TestProcessBomKeep:
+    """`exclude: false` в конфиге доходит до каскада через process_bom."""
+
+    def _bom(self):
+        return make_bom(
+            [
+                make_component("own-module", "1.0.0", purl="pkg:npm/own-module@1.0.0"),
+                make_component("assert", "2.1.0", purl="pkg:npm/assert@2.1.0"),
+            ],
+            dependencies=[
+                {"ref": "pkg:npm/own-module@1.0.0", "dependsOn": ["pkg:npm/assert@2.1.0"]},
+                {"ref": "pkg:npm/assert@2.1.0", "dependsOn": []},
+            ],
+        )
+
+    def test_config_keep_survives_cascade(self, tmp_path):
+        config_path = tmp_path / ".efs-config.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "components": {
+                        "pkg:npm/own-module": {"exclude": True},
+                        "pkg:npm/assert": {"exclude": False},
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        bom = run_with_config(self._bom(), config_path, tmp_path)
+        assert [c["name"] for c in bom["components"]] == ["assert"]
+
+    def test_without_explicit_keep_component_leaves(self, tmp_path):
+        config_path = tmp_path / ".efs-config.json"
+        config_path.write_text(
+            json.dumps({"components": {"pkg:npm/own-module": {"exclude": True}, "pkg:npm/assert": {}}}),
+            encoding="utf-8",
+        )
+        bom = run_with_config(self._bom(), config_path, tmp_path)
+        assert bom.get("components", []) == []
+
+
+def run_with_config(bom, config_path, tmp_path):
+    """Прогнать postprocess.run с конфигом и вернуть результат."""
+    src = tmp_path / "in.json"
+    src.write_text(json.dumps(bom, ensure_ascii=False), encoding="utf-8")
+    out = tmp_path / "out.json"
+    run(postprocess_args(input=str(src), output=str(out), config=str(config_path)))
+    return json.loads(out.read_text(encoding="utf-8"))
+
+
+class TestToolRecord:
+    """efs отмечается в metadata.tools, чтобы обработанный файл не путали с сырым отчётом."""
+
+    def _tools(self, bom):
+        return bom.get("metadata", {}).get("tools", {}).get("components", [])
+
+    def test_efs_recorded(self):
+        bom = process_bom(make_bom([make_component("requests", "2.32.5")]), postprocess_args())
+        assert [t["name"] for t in self._tools(bom)] == ["efs"]
+
+    def test_record_carries_group_and_version(self):
+        bom = process_bom(make_bom([]), postprocess_args())
+        record = self._tools(bom)[0]
+        assert record["group"] == "efs"
+        assert record["type"] == "application"
+        assert record["version"] == __version__
+
+    def test_scanner_record_kept(self):
+        bom = make_bom([])
+        bom["metadata"]["tools"] = {
+            "components": [{"type": "application", "group": "aquasecurity", "name": "trivy", "version": "0.74.0"}]
+        }
+        process_bom(bom, postprocess_args())
+        assert [t["name"] for t in self._tools(bom)] == ["trivy", "efs"]
+
+    def test_record_not_duplicated(self):
+        bom = process_bom(make_bom([]), postprocess_args())
+        process_bom(bom, postprocess_args())
+        assert [t["name"] for t in self._tools(bom)] == ["efs"]
+
+    def test_legacy_list_form_normalized(self):
+        bom = make_bom([])
+        bom["metadata"]["tools"] = [{"vendor": "cyclonedx", "name": "cdxgen", "version": "11.0.0"}]
+        process_bom(bom, postprocess_args())
+        names = [t["name"] for t in self._tools(bom)]
+        assert names == ["cdxgen", "efs"]
+        assert self._tools(bom)[0]["group"] == "cyclonedx"
+
+    def test_strip_only_leaves_tools_alone(self):
+        bom = make_bom([])
+        bom["metadata"]["tools"] = {"components": []}
+        process_bom(bom, postprocess_args(strip_only=True))
+        assert self._tools(bom) == []

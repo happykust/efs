@@ -8,9 +8,17 @@ from types import SimpleNamespace
 
 import pytest
 
+from efs.postprocess import process_bom
 from efs.unifier import eval_prop, is_trivy_sbom, run
 
-from .conftest import make_bom, make_component, make_trivy_bom, trivy_component, trivy_manifest
+from .conftest import (
+    make_bom,
+    make_component,
+    make_trivy_bom,
+    postprocess_args,
+    trivy_component,
+    trivy_manifest,
+)
 
 
 def merge_boms(tmp_path, boms):
@@ -715,3 +723,34 @@ class TestMergeDetailsRemaining:
         result = merge_boms(tmp_path, [bom_with("sha256:aaa"), bom_with("sha256:bbb")])
         digests = [p for p in result["components"][0]["properties"] if p["name"] == "aquasecurity:trivy:LayerDigest"]
         assert len(digests) == 1
+
+
+class TestProcessedSbomIsNotRawReport:
+    """Файл, прошедший `efs postprocess`, — уже перечень, а не сырой отчёт trivy."""
+
+    def _postprocessed(self, components):
+        bom = make_trivy_bom(components)
+        return process_bom(bom, postprocess_args(app_name="RT.DataVision", app_version="3.1.2", manufacturer="ООО"))
+
+    def test_efs_record_outweighs_trivy_record(self):
+        bom = self._postprocessed([trivy_component("lodash", "4.17.21", "ref-a", "pkg:npm/lodash@4.17.21")])
+        assert is_trivy_sbom(bom) is False
+
+    def test_merge_builds_one_component_per_file(self, tmp_path):
+        front = self._postprocessed([trivy_component("lodash", "4.17.21", "ref-a", "pkg:npm/lodash@4.17.21")])
+        image = self._postprocessed([trivy_component("openssl", "3.0.2", "ref-b", "pkg:deb/openssl@3.0.2")])
+        result = merge_boms(tmp_path, [front, image])
+        assert len(result["components"]) == 2
+        assert [c["name"] for c in result["components"]] == ["RT.DataVision", "RT.DataVision"]
+
+    def test_raw_reports_still_merge_flat(self, tmp_path):
+        first = make_trivy_bom([trivy_component("lodash", "4.17.21", "ref-a", "pkg:npm/lodash@4.17.21")])
+        second = make_trivy_bom([trivy_component("openssl", "3.0.2", "ref-b", "pkg:deb/openssl@3.0.2")])
+        result = merge_boms(tmp_path, [first, second])
+        assert sorted(c["name"] for c in result["components"]) == ["lodash", "openssl"]
+
+    def test_mixing_processed_and_raw_is_rejected(self, tmp_path):
+        processed = self._postprocessed([trivy_component("lodash", "4.17.21", "ref-a", "pkg:npm/lodash@4.17.21")])
+        raw = make_trivy_bom([trivy_component("openssl", "3.0.2", "ref-b", "pkg:deb/openssl@3.0.2")])
+        with pytest.raises(SystemExit):
+            merge_boms(tmp_path, [processed, raw])

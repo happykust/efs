@@ -32,14 +32,25 @@ def eval_prop(components, name):
 
 
 def is_trivy_sbom(data):
-    """Определить, что SBOM сформирован trivy, по записи об инструменте в metadata."""
+    """Определить, что перед нами сырой отчёт trivy, ещё не прошедший постобработку.
+
+    Отметка efs в metadata.tools весомее записи trivy: `efs postprocess` не
+    убирает запись сканера, поэтому по ней одной готовый перечень не отличить
+    от исходного отчёта — и слияние уходило бы в плоский режим вместо сборки
+    компонента продукта из каждого файла.
+    """
     tools = data.get("metadata", {}).get("tools", {})
     if not isinstance(tools, dict):
         return False
+    trivy = False
     for tool in tools.get("components", []):
+        if not isinstance(tool, dict):
+            continue
+        if tool.get("group") == "efs" and tool.get("name") == "efs":
+            return False
         if tool.get("group") == "aquasecurity" and tool.get("name") == "trivy":
-            return True
-    return False
+            trivy = True
+    return trivy
 
 
 def _build_output(args, components, extra_sections=None):

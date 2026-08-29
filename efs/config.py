@@ -269,6 +269,21 @@ def config_to_purl_exclude(config):
     return cascade, direct
 
 
+def config_to_purl_keep(config):
+    """Собрать purl, помеченные явным `exclude: false` — их нельзя убирать каскадом.
+
+    Отсутствие ключа `exclude` означает «решения по компоненту не принимали»:
+    каскад вправе унести его вместе с исключённым родителем. Записанный руками
+    `exclude: false` — обратное указание: компонент поставляется, оставить его
+    в перечне, даже если все его родители исключены.
+    """
+    return [
+        purl
+        for purl, entry in config.get("components", {}).items()
+        if isinstance(entry, dict) and entry.get("exclude") is False
+    ]
+
+
 # ── Генерация конфига ─────────────────────────────────────────────────────────
 
 

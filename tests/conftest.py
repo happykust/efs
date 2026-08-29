@@ -7,6 +7,7 @@
 """
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -150,3 +151,24 @@ def trivy_manifest(name, ref):
         "name": name,
         "properties": [{"name": "aquasecurity:trivy:Class", "value": "lang-pkgs"}],
     }
+
+
+def postprocess_args(**overrides):
+    base = {
+        "input": "",
+        "output": "",
+        "app_name": None,
+        "app_version": None,
+        "manufacturer": None,
+        "gost_default": "no",
+        "strip_only": False,
+        "keep_all_fields": False,
+        "provided_by": None,
+        "purl_to_vcs": None,
+        "purl_to_gost": None,
+        "purl_exclude": None,
+        "config": None,
+        "pretty": True,
+    }
+    base.update(overrides)
+    return SimpleNamespace(**base)

@@ -21,9 +21,11 @@ import json
 from pathlib import Path
 from urllib.parse import unquote
 
+from efs import __version__
 from efs.config import (
     apply_config_to_component,
     config_to_purl_exclude,
+    config_to_purl_keep,
     config_to_purl_to_gost,
     config_to_purl_to_vcs,
     get_metadata_config,
@@ -235,6 +237,41 @@ def strip_root(bom, strip_root_fields):
             bom.pop(field, None)
 
 
+def _legacy_tool_to_component(tool):
+    """Перевести запись инструмента из устаревшей формы CycloneDX 1.4 в компонент."""
+    comp = {"type": "application", "name": tool.get("name", "")}
+    if tool.get("vendor"):
+        comp["group"] = tool["vendor"]
+    if tool.get("version"):
+        comp["version"] = tool["version"]
+    return comp
+
+
+def record_tool(meta):
+    """Отметить efs среди инструментов, обработавших документ.
+
+    По этой записи `efs merge` отличает готовый перечень от сырого отчёта
+    сканера: trivy оставляет в metadata.tools свою запись, и без отметки efs
+    постобработанный файл выглядел бы как отчёт, который ещё надо слить плоско.
+    Записи сканеров сохраняются — они говорят, чем найдены компоненты.
+    """
+    tools = meta.get("tools")
+    if isinstance(tools, list):
+        tools = {"components": [_legacy_tool_to_component(t) for t in tools if isinstance(t, dict)]}
+    elif not isinstance(tools, dict):
+        tools = {}
+
+    components = tools.setdefault("components", [])
+    for tool in components:
+        if isinstance(tool, dict) and tool.get("group") == "efs" and tool.get("name") == "efs":
+            tool["version"] = __version__
+            break
+    else:
+        components.append({"type": "application", "group": "efs", "name": "efs", "version": __version__})
+
+    meta["tools"] = tools
+
+
 def ensure_metadata(bom, app_name, app_version, manufacturer, config=None):
     """Гарантировать наличие обязательных полей metadata."""
     if "metadata" not in bom:
@@ -243,6 +280,8 @@ def ensure_metadata(bom, app_name, app_version, manufacturer, config=None):
 
     # timestamp
     meta["timestamp"] = datetime.datetime.now(datetime.UTC).isoformat()
+
+    record_tool(meta)
 
     # metadata.component
     if "component" not in meta:
@@ -449,7 +488,7 @@ def _filter_components_recursive(components, refs_to_remove):
     return result
 
 
-def exclude_components(bom, exclude_purls):
+def exclude_components(bom, exclude_purls, keep_purls=None):
     """Исключить компоненты из BOM по списку purl-префиксов и их транзитивные зависимости.
 
     Алгоритм:
@@ -457,21 +496,31 @@ def exclude_components(bom, exclude_purls):
     2. Если есть секция dependencies — построить граф и найти транзитивные
        зависимости, которые достижимы ТОЛЬКО из исключаемых компонентов.
     3. Удалить найденные компоненты и записи из dependencies.
+
+    `keep_purls` — компоненты с явным `exclude: false`. Такой компонент не
+    удаляется ни каскадом, ни прямым совпадением: продукт его поставляет,
+    и в перечне он обязан остаться.
     """
     components = bom.get("components", [])
     if not components:
         return 0
 
     exclude = _split_exclude(exclude_purls)
+    keep = _split_exclude(keep_purls or [])
 
     # Собрать все bom-ref компонентов, попадающих под исключение
     direct_excluded = set()
     all_refs = set()
+    kept_refs = set()
     for comp in _iter_components_flat(components):
         ref = comp.get("bom-ref", comp.get("purl", ""))
         purl = comp.get("purl", "")
         all_refs.add(ref)
-        if purl and _purl_matches_exclude(purl, exclude):
+        if not purl:
+            continue
+        if keep_purls and _purl_matches_exclude(purl, keep):
+            kept_refs.add(ref)
+        elif _purl_matches_exclude(purl, exclude):
             direct_excluded.add(ref)
 
     if not direct_excluded:
@@ -496,7 +545,7 @@ def exclude_components(bom, exclude_purls):
         # в перечне, компонент поставляется и должен быть задекларирован.
         # Узлы без родителей — верхнеуровневые зависимости, их каскад не трогает.
         for node in all_refs:
-            if node in refs_to_remove:
+            if node in refs_to_remove or node in kept_refs:
                 continue
             node_parents = parents.get(node)
             if node_parents and all(parent in direct_excluded for parent in node_parents):
@@ -599,7 +648,14 @@ def _exclude_direct(bom, exclude_purls):
 
 
 def process_bom(
-    bom, args, purl_to_vcs=None, purl_to_gost=None, purl_exclude=None, config=None, purl_exclude_direct=None
+    bom,
+    args,
+    purl_to_vcs=None,
+    purl_to_gost=None,
+    purl_exclude=None,
+    config=None,
+    purl_exclude_direct=None,
+    purl_keep=None,
 ):
     """Основная обработка BOM."""
     ensure_root(bom)
@@ -613,7 +669,7 @@ def process_bom(
     # только на исключённых и вынесли бы из перечня то, что продукт поставляет.
     n_excluded = 0
     if purl_exclude:
-        n_excluded = exclude_components(bom, purl_exclude)
+        n_excluded = exclude_components(bom, purl_exclude, purl_keep)
         if n_excluded:
             print(f"  Исключено компонентов (с транзитивными): {n_excluded}")
 
@@ -658,6 +714,7 @@ def run(args):
     purl_exclude = None
 
     purl_exclude_direct = None
+    purl_keep = None
 
     if config:
         # Конвертировать конфиг в старые форматы для обратной совместимости
@@ -666,6 +723,7 @@ def run(args):
         cascade_list, direct_list = config_to_purl_exclude(config)
         purl_exclude = cascade_list if cascade_list else None
         purl_exclude_direct = direct_list if direct_list else None
+        purl_keep = config_to_purl_keep(config) or None
         n_vcs = sum(1 for v in purl_to_vcs.values() if v)
         n_total = len(config.get("components", {}))
         print(f"Конфиг загружен: {n_total} компонентов, {n_vcs} с VCS")
@@ -696,7 +754,7 @@ def run(args):
             purl_to_vcs = config_to_purl_to_vcs(config)
 
     # Обработка
-    bom = process_bom(bom, args, purl_to_vcs, purl_to_gost, purl_exclude, config, purl_exclude_direct)
+    bom = process_bom(bom, args, purl_to_vcs, purl_to_gost, purl_exclude, config, purl_exclude_direct, purl_keep)
 
     # Запись
     indent = 2 if args.pretty else None

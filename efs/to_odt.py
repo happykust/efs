@@ -9,16 +9,14 @@ from odf.style import TextProperties
 from odf.table import Table, TableCell, TableRow
 from odf.text import P
 
-from .utils import combine_source_langs, get_prop, get_props, opener, source_reference
+from .utils import combine_source_langs, get_prop, get_props, opener, source_reference, source_url
 
 _PKG_DIR = Path(__file__).parent.resolve()
 
 
 def get_ext_ref(er_list):
-    for er in er_list:
-        if er["type"] in ["vcs", "source-distribution"]:
-            return er["url"]
-    return ""
+    """Адрес исходного кода: репозиторий важнее дистрибутива, заглушки не в счёт."""
+    return source_url({"externalReferences": er_list})
 
 
 def run(args):

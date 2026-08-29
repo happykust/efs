@@ -4,7 +4,7 @@
 
 import csv
 
-from .utils import combine_source_langs, get_prop, get_props, opener, source_reference
+from .utils import _PLACEHOLDER_URLS, combine_source_langs, get_prop, get_props, opener, source_reference
 
 
 def run(args):
@@ -34,6 +34,8 @@ def run(args):
 
         ext_refs = component.get("externalReferences")
         urls = ""
+        if ext_refs:
+            ext_refs = [item for item in ext_refs if item.get("url") not in _PLACEHOLDER_URLS]
         if ext_refs:
             for item in ext_refs:
                 if item["type"] == "vcs":

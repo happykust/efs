@@ -413,6 +413,25 @@ _SOURCE_REF_LABELS = {
 }
 
 
+def source_url(component):
+    """Адрес исходного кода компонента: репозиторий важнее дистрибутива.
+
+    Ссылки-заглушки (`TODO`, пустая строка, служебный placeholder) источником
+    не считаются — в отчётной форме они выглядели бы как настоящий адрес.
+    """
+    refs = component.get("externalReferences", [])
+    if not isinstance(refs, list):
+        return ""
+    for ref_type in _SOURCE_REF_LABELS:
+        for ref in refs:
+            if not isinstance(ref, dict) or ref.get("type") != ref_type:
+                continue
+            url = ref.get("url")
+            if url not in _PLACEHOLDER_URLS:
+                return url
+    return ""
+
+
 def source_reference(component):
     """Сведения об источнике компонента для колонки отчётной формы.
 
@@ -420,15 +439,11 @@ def source_reference(component):
     сертифицированного СЗИ, указывается это средство — иначе в документе
     остаётся пустая графа.
     """
-    refs = component.get("externalReferences", [])
-    if isinstance(refs, list):
-        for ref_type, label in _SOURCE_REF_LABELS.items():
-            for ref in refs:
-                if not isinstance(ref, dict) or ref.get("type") != ref_type:
-                    continue
-                url = ref.get("url")
-                if url not in _PLACEHOLDER_URLS:
-                    return f"{label}: {url}"
+    url = source_url(component)
+    if url:
+        for ref in component.get("externalReferences", []):
+            if isinstance(ref, dict) and ref.get("url") == url:
+                return f"{_SOURCE_REF_LABELS.get(ref.get('type'), 'Источник')}: {url}"
 
     provided_by = get_prop(component.get("properties", []), "GOST:provided_by")
     if provided_by:

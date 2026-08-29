@@ -443,3 +443,108 @@ class TestReadinessUnit:
             components.append(comp)
         assert checker.check_readiness(make_bom(components), limit=2) == 5
         assert capsys.readouterr().out.count("WARNING:") == 2
+
+
+class TestUniquenessCoverage:
+    def _bom_with(self, **sections):
+        bom = make_bom([complete_component()])
+        bom.update(sections)
+        return bom
+
+    def test_duplicate_vulnerabilities_reported(self, write_json):
+        vuln = {"id": "CVE-2024-0001", "affects": [{"ref": "pkg:pypi/requests@2.32.5"}]}
+        path = write_json("bom.json", self._bom_with(vulnerabilities=[vuln, json.loads(json.dumps(vuln))]))
+        assert checker.run(args_for(path)) == 1
+
+    def test_duplicate_depends_on_reported(self, write_json):
+        deps = [{"ref": "pkg:pypi/requests@2.32.5", "dependsOn": ["pkg:pypi/x@1.0", "pkg:pypi/x@1.0"]}]
+        path = write_json("bom.json", self._bom_with(dependencies=deps))
+        assert checker.run(args_for(path)) == 1
+
+    def test_duplicates_found_at_any_depth(self, write_json):
+        """Дубликаты во вложенных массивах — обычное дело для cdxgen и trivy."""
+        inner = complete_component("вложенный")
+        outer = complete_component("внешний")
+        outer["components"] = [inner, json.loads(json.dumps(inner))]
+        path = write_json("bom.json", make_bom([outer]))
+        assert checker.run(args_for(path)) == 1
+
+    def test_key_order_does_not_hide_duplicate(self):
+        """Одинаковые по смыслу записи с разным порядком ключей — тоже дубликаты."""
+        bom = {"dependencies": [{"ref": "a", "dependsOn": ["z"]}, {"dependsOn": ["z"], "ref": "a"}]}
+        assert checker.check_uniqueness(bom)
+
+
+class TestLinkCheckOutcomes:
+    def _bom_with_source_dist(self):
+        comp = complete_component()
+        comp["externalReferences"].append(
+            {"type": "source-distribution", "url": "https://example.org/requests-2.32.5.tar.gz"}
+        )
+        return make_bom([comp])
+
+    def test_broken_archive_fails_the_run(self, write_json, monkeypatch):
+        """Недоступный дистрибутив исходников обязан валить проверку, а не только печатать warning."""
+        monkeypatch.setattr(checker, "load_cache", lambda kind: {})
+        monkeypatch.setattr(checker, "dump_cache", lambda kind, data: None)
+        monkeypatch.setattr(checker, "check_repo", lambda url: (True, ""))
+        monkeypatch.setattr(checker, "is_archive_url", lambda session, url: (False, "не архив"))
+        path = write_json("bom.json", self._bom_with_source_dist())
+        assert checker.run(args_for(path, check_source_distribution=True)) == 1
+
+    def test_exception_inside_parallel_check_is_reported(self, write_json, capsys, monkeypatch):
+        """Ошибка внутри параллельной проверки не должна проглатываться — иначе ссылки не проверены."""
+        monkeypatch.setattr(checker, "load_cache", lambda kind: {})
+        monkeypatch.setattr(checker, "dump_cache", lambda kind, data: None)
+
+        def boom(url):
+            raise RuntimeError("сеть недоступна")
+
+        monkeypatch.setattr(checker, "check_repo", boom)
+        path = write_json("bom.json", make_bom([complete_component()]))
+        code = checker.run(args_for(path, check_vcs=True))
+        assert code == 1
+        assert "exception" in capsys.readouterr().out.lower()
+
+    def test_failed_checks_not_written_to_cache(self, write_json, monkeypatch):
+        """Разовый сбой сети не должен навсегда оседать в кеше как «репозиторий битый»."""
+        saved = {}
+        monkeypatch.setattr(checker, "load_cache", lambda kind: {})
+        monkeypatch.setattr(checker, "dump_cache", lambda kind, data: saved.update({kind: data}))
+        monkeypatch.setattr(checker, "check_repo", lambda url: (False, "нет сети"))
+        path = write_json("bom.json", make_bom([complete_component()]))
+        checker.run(args_for(path, check_vcs=True))
+        assert saved.get("vcs") == {}
+
+    def test_leaf_only_checks_only_leaves(self, write_json, monkeypatch):
+        """--check-vcs-leaf-only проверяет листья, а не узлы-контейнеры."""
+        checked = []
+        monkeypatch.setattr(checker, "load_cache", lambda kind: {})
+        monkeypatch.setattr(checker, "dump_cache", lambda kind, data: None)
+        monkeypatch.setattr(checker, "check_repo", lambda url: (checked.append(url), (True, ""))[1])
+
+        leaf = complete_component("лист")
+        leaf["externalReferences"] = [{"type": "vcs", "url": "https://github.com/example/leaf"}]
+        parent = complete_component("родитель")
+        parent["externalReferences"] = [{"type": "vcs", "url": "https://github.com/example/parent"}]
+        parent["components"] = [leaf]
+        path = write_json("bom.json", make_bom([parent]))
+
+        checker.run(args_for(path, check_vcs_leaf_only=True))
+        assert checked == ["https://github.com/example/leaf"]
+
+    def test_check_vcs_visits_every_component(self, write_json, monkeypatch):
+        checked = []
+        monkeypatch.setattr(checker, "load_cache", lambda kind: {})
+        monkeypatch.setattr(checker, "dump_cache", lambda kind, data: None)
+        monkeypatch.setattr(checker, "check_repo", lambda url: (checked.append(url), (True, ""))[1])
+
+        leaf = complete_component("лист")
+        leaf["externalReferences"] = [{"type": "vcs", "url": "https://github.com/example/leaf"}]
+        parent = complete_component("родитель")
+        parent["externalReferences"] = [{"type": "vcs", "url": "https://github.com/example/parent"}]
+        parent["components"] = [leaf]
+        path = write_json("bom.json", make_bom([parent]))
+
+        checker.run(args_for(path, check_vcs=True))
+        assert sorted(checked) == ["https://github.com/example/leaf", "https://github.com/example/parent"]

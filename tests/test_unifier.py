@@ -461,3 +461,150 @@ class TestMergeSourceLangs:
         result = merge_boms(tmp_path, [make_bom([outer])])
         langs = [p["value"] for p in result["components"][0]["properties"] if p["name"] == "GOST:source_langs"]
         assert langs == ["C"]
+
+
+class TestMergedServiceKeepsItsListing:
+    """Компонент-сервис несёт внутри себя перечень своих заимствованных компонентов."""
+
+    def _service_bom(self, service_name, components):
+        bom = make_bom(components)
+        bom["metadata"]["component"]["name"] = service_name
+        return bom
+
+    def test_nested_listing_transferred(self, tmp_path):
+        bom = self._service_bom("Сервис А", [make_component("requests", "2.32.5")])
+        result = merge_boms(tmp_path, [bom])
+        nested = result["components"][0].get("components", [])
+        assert [c["name"] for c in nested] == ["requests"]
+
+    def test_service_version_comes_from_metadata(self, tmp_path):
+        bom = self._service_bom("Сервис А", [make_component("requests", "2.32.5")])
+        bom["metadata"]["component"]["version"] = "3.1.8"
+        result = merge_boms(tmp_path, [bom])
+        assert result["components"][0]["version"] == "3.1.8"
+
+    def test_document_version_is_one(self, tmp_path):
+        result = merge_boms(tmp_path, [self._service_bom("Сервис", [])])
+        assert result["version"] == 1
+
+    def test_timestamp_present(self, tmp_path):
+        result = merge_boms(tmp_path, [self._service_bom("Сервис", [])])
+        assert result["metadata"]["timestamp"]
+
+
+class TestGostAggregationPriority:
+    def _bom_with(self, values):
+        components = [
+            make_component(f"lib{i}", "1.0", properties=[{"name": "GOST:attack_surface", "value": v}])
+            for i, v in enumerate(values)
+        ]
+        return make_bom(components)
+
+    def test_yes_beats_indirect(self, tmp_path):
+        """yes > indirect > no: сервис с компонентом на поверхности атаки помечается yes."""
+        result = merge_boms(tmp_path, [self._bom_with(["indirect", "yes"])])
+        props = {p["name"]: p["value"] for p in result["components"][0]["properties"]}
+        assert props["GOST:attack_surface"] == "yes"
+
+    def test_indirect_beats_no(self, tmp_path):
+        result = merge_boms(tmp_path, [self._bom_with(["no", "indirect"])])
+        props = {p["name"]: p["value"] for p in result["components"][0]["properties"]}
+        assert props["GOST:attack_surface"] == "indirect"
+
+    def test_missing_value_does_not_become_no(self, tmp_path):
+        """Если у части компонентов свойства нет, заявлять «влияния нет» нельзя."""
+        bom = make_bom(
+            [
+                make_component("lib0", "1.0", properties=[{"name": "GOST:attack_surface", "value": "no"}]),
+                make_component("lib1", "1.0"),
+            ]
+        )
+        result = merge_boms(tmp_path, [bom])
+        props = {p["name"]: p["value"] for p in result["components"][0]["properties"]}
+        assert props["GOST:attack_surface"] == ""
+
+    def test_explicit_security_function_preserved(self, tmp_path):
+        bom = make_bom([make_component("lib", "1.0", properties=[{"name": "GOST:security_function", "value": "no"}])])
+        bom["metadata"]["component"]["properties"] = [{"name": "GOST:security_function", "value": "indirect"}]
+        result = merge_boms(tmp_path, [bom])
+        values = [p["value"] for p in result["components"][0]["properties"] if p["name"] == "GOST:security_function"]
+        assert values == ["indirect"]
+
+
+class TestTrivyDetectionPrecision:
+    def test_requires_both_group_and_name(self):
+        for tool in ({"group": "aquasecurity", "name": "trivy-db"}, {"group": "acme", "name": "trivy"}):
+            bom = make_trivy_bom()
+            bom["metadata"]["tools"]["components"] = [tool]
+            assert is_trivy_sbom(bom) is False, tool
+
+    def test_tools_as_list_is_not_trivy(self):
+        bom = make_bom([])
+        bom["metadata"]["tools"] = [{"vendor": "cyclonedx", "name": "cdxgen"}]
+        assert is_trivy_sbom(bom) is False
+
+    def test_mixed_inputs_rejected_in_any_order(self, tmp_path):
+        trivy = make_trivy_bom()
+        regular = make_bom([make_component("requests", "2.32.5")])
+        for order in ([trivy, regular], [regular, trivy]):
+            with pytest.raises(SystemExit):
+                merge_boms(tmp_path, order)
+
+
+class TestTrivyMergeDetails:
+    def test_first_occurrence_wins_for_fields(self, tmp_path):
+        first = make_trivy_bom([trivy_component("lodash", "4.17.21", "ref-a", "pkg:npm/lodash@4.17.21")])
+        first["components"][0]["licenses"] = [{"license": {"id": "MIT"}}]
+        second = make_trivy_bom([trivy_component("lodash", "4.17.21", "ref-b", "pkg:npm/lodash@4.17.21")])
+        second["components"][0]["licenses"] = [{"license": {"id": "GPL-3.0"}}]
+        result = merge_boms(tmp_path, [first, second])
+        assert result["components"][0]["licenses"] == [{"license": {"id": "MIT"}}]
+
+    def test_properties_merged_when_first_has_none(self, tmp_path):
+        first = make_trivy_bom([trivy_component("lodash", "4.17.21", "ref-a", "pkg:npm/lodash@4.17.21", properties=[])])
+        second = make_trivy_bom(
+            [
+                trivy_component(
+                    "lodash",
+                    "4.17.21",
+                    "ref-b",
+                    "pkg:npm/lodash@4.17.21",
+                    properties=[{"name": "aquasecurity:trivy:PkgType", "value": "npm"}],
+                )
+            ]
+        )
+        result = merge_boms(tmp_path, [first, second])
+        names = {p["name"] for p in result["components"][0].get("properties", [])}
+        assert "aquasecurity:trivy:PkgType" in names
+
+    def test_same_cve_on_same_component_not_duplicated(self, tmp_path):
+        vuln = {"id": "CVE-2021-23337", "affects": [{"ref": "ref-a"}]}
+        first = make_trivy_bom(
+            [trivy_component("lodash", "4.17.21", "ref-a", "pkg:npm/lodash@4.17.21")], vulnerabilities=[vuln]
+        )
+        second = make_trivy_bom(
+            [trivy_component("lodash", "4.17.21", "ref-a", "pkg:npm/lodash@4.17.21")],
+            vulnerabilities=[json.loads(json.dumps(vuln))],
+        )
+        result = merge_boms(tmp_path, [first, second])
+        assert result["vulnerabilities"][0]["affects"] == [{"ref": "ref-a"}]
+
+    def test_shared_dependency_not_duplicated(self, tmp_path):
+        def bom_with(ref):
+            return make_trivy_bom(
+                [
+                    trivy_component("lodash", "4.17.21", ref, "pkg:npm/lodash@4.17.21"),
+                    trivy_component("axios", "1.6.0", "ref-x", "pkg:npm/axios@1.6.0"),
+                ],
+                dependencies=[{"ref": ref, "dependsOn": ["ref-x"]}],
+            )
+
+        result = merge_boms(tmp_path, [bom_with("ref-a"), bom_with("ref-b")])
+        entry = next(d for d in result["dependencies"] if d["ref"] == "ref-a")
+        assert entry["dependsOn"] == ["ref-x"]
+
+    def test_manufacturer_comes_from_cli(self, tmp_path):
+        bom = make_trivy_bom([trivy_component("lodash", "4.17.21", "ref-a", "pkg:npm/lodash@4.17.21")])
+        bom["metadata"]["component"]["manufacturer"] = {"name": "Aqua Security"}
+        result = merge_boms(tmp_path, [bom])
+        assert result["metadata"]["component"]["manufacturer"] == {"name": "ООО Тест"}

@@ -708,19 +708,19 @@ class TestEveryContainerChecked:
             )
         return make_bom(containers)
 
-    def test_second_container_also_reported(self, write_json, capsys):
-        checker.run(
-            args_for(write_json("bom.json", self._bom("первый-образ", "второй-образ")), format="container", errors=0)
-        )
-        out = capsys.readouterr().out
-        assert "первый-образ" in out
-        assert "второй-образ" in out
+    def _container_errors(self, write_json, capsys, *names):
+        checker.run(args_for(write_json("bom.json", self._bom(*names)), format="container", errors=0))
+        return [line for line in capsys.readouterr().out.splitlines() if line.startswith("ERROR: контейнер")]
 
-    def test_all_containers_counted_in_exit_code(self, write_json):
-        code = checker.run(
-            args_for(write_json("bom.json", self._bom("первый-образ", "второй-образ")), format="container", errors=0)
-        )
-        assert code == 1
+    def test_second_container_also_reported(self, write_json, capsys):
+        errors = self._container_errors(write_json, capsys, "первый-образ", "второй-образ")
+        assert any('"первый-образ"' in line for line in errors)
+        assert any('"второй-образ"' in line for line in errors)
+
+    def test_every_container_yields_its_own_errors(self, write_json, capsys):
+        one = self._container_errors(write_json, capsys, "первый-образ")
+        two = self._container_errors(write_json, capsys, "первый-образ", "второй-образ")
+        assert len(two) == 2 * len(one)
 
 
 class TestReadinessEmptyValues:

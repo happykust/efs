@@ -502,3 +502,229 @@ class TestManifestEdgesMovedToRoot:
         _remove_manifest_components(bom)
         assert "package-lock.json" not in [c["name"] for c in bom["components"]]
         assert all(d["ref"] != "manifest-1" for d in bom["dependencies"])
+
+
+def postprocess_args(**overrides):
+    base = {
+        "input": "",
+        "output": "",
+        "app_name": None,
+        "app_version": None,
+        "manufacturer": None,
+        "gost_default": "no",
+        "strip_only": False,
+        "keep_all_fields": False,
+        "provided_by": None,
+        "purl_to_vcs": None,
+        "purl_to_gost": None,
+        "purl_exclude": None,
+        "config": None,
+        "pretty": True,
+    }
+    base.update(overrides)
+    return SimpleNamespace(**base)
+
+
+class TestProcessBomAsWhole:
+    """Проводка внутри process_bom: флаги и порядок шагов, а не отдельные функции."""
+
+    def _component(self):
+        return make_component(
+            "requests",
+            "2.32.5",
+            description="HTTP for humans",
+            scope="required",
+            evidence={"identity": {"field": "purl"}},
+        )
+
+    def test_optional_fields_stripped_by_default(self):
+        bom = process_bom(make_bom([self._component()]), postprocess_args())
+        comp = bom["components"][0]
+        for field in ("description", "scope", "evidence"):
+            assert field not in comp, f"{field} должно вычищаться по умолчанию"
+
+    def test_keep_all_fields_preserves_them(self):
+        bom = process_bom(make_bom([self._component()]), postprocess_args(keep_all_fields=True))
+        comp = bom["components"][0]
+        assert comp["description"] == "HTTP for humans"
+        assert comp["scope"] == "required"
+
+    def test_gost_properties_added_for_every_component(self):
+        bom = process_bom(make_bom([self._component(), make_component("flask", "3.0.0")]), postprocess_args())
+        for comp in bom["components"]:
+            names = {p["name"] for p in comp["properties"]}
+            assert {"GOST:attack_surface", "GOST:security_function"} <= names
+
+    def test_metadata_filled_from_arguments(self):
+        bom = process_bom(
+            make_bom([self._component()]),
+            postprocess_args(app_name="Продукт", app_version="2.0", manufacturer="ООО Тест"),
+        )
+        meta = bom["metadata"]["component"]
+        assert (meta["name"], meta["version"], meta["manufacturer"]["name"]) == ("Продукт", "2.0", "ООО Тест")
+
+    def test_strip_only_leaves_metadata_alone(self):
+        bom = make_bom([self._component()])
+        bom["metadata"]["component"]["name"] = "Исходное"
+        result = process_bom(bom, postprocess_args(strip_only=True, app_name="Новое"))
+        assert result["metadata"]["component"]["name"] == "Исходное"
+
+
+class TestProcessBomExcludeOrder:
+    """Порядок шагов: манифесты → каскад → прямое исключение."""
+
+    def _bom(self):
+        def ref(name):
+            return f"pkg:npm/{name}@1.0"
+
+        bom = make_bom(
+            [
+                {"bom-ref": "manifest-1", "type": "application", "name": "package-lock.json"},
+                make_component("storybook", "1.0", purl=ref("storybook")),
+                make_component("css-loader", "1.0", purl=ref("css-loader")),
+                make_component("our-module", "1.0", purl=ref("our-module")),
+                make_component("underscore", "1.0", purl=ref("underscore")),
+            ],
+            dependencies=[
+                {"ref": "root", "dependsOn": ["manifest-1"]},
+                {"ref": "manifest-1", "dependsOn": [ref("css-loader"), ref("storybook")]},
+                {"ref": ref("storybook"), "dependsOn": [ref("css-loader")]},
+                {"ref": ref("our-module"), "dependsOn": [ref("underscore")]},
+            ],
+        )
+        bom["metadata"]["component"]["bom-ref"] = "root"
+        return bom
+
+    def _run(self):
+        return process_bom(
+            self._bom(),
+            postprocess_args(),
+            purl_exclude=["pkg:npm/storybook"],
+            purl_exclude_direct=["pkg:npm/our-module"],
+        )
+
+    def test_manifest_child_survives_cascade(self):
+        """Зависимость манифеста держит продукт — каскад её не трогает."""
+        assert "css-loader" in [c["name"] for c in self._run()["components"]]
+
+    def test_direct_parent_does_not_trigger_cascade(self):
+        """underscore тянет наш модуль с exclude=direct — он остаётся в перечне."""
+        assert "underscore" in [c["name"] for c in self._run()["components"]]
+
+    def test_excluded_components_gone(self):
+        names = [c["name"] for c in self._run()["components"]]
+        assert "storybook" not in names
+        assert "our-module" not in names
+        assert "package-lock.json" not in names
+
+    def test_no_dangling_references(self):
+        result = self._run()
+        known = {c.get("bom-ref") for c in result["components"]} | {"root"}
+        for entry in result.get("dependencies", []):
+            assert entry["ref"] in known
+            for dep in entry.get("dependsOn", []):
+                assert dep in known
+
+
+class TestGostPropertiesPrecision:
+    """Значения ГОСТ-свойств попадают в документ регулятору — перепутать их нельзя."""
+
+    def _component(self, properties=None):
+        return make_component("requests", "2.32.5", properties=properties or [])
+
+    def _props(self, comp):
+        return {p["name"]: p["value"] for p in comp["properties"]}
+
+    def test_mapping_values_not_swapped(self):
+        """Поверхность атаки и функция безопасности берутся каждая из своей секции."""
+        comp = self._component()
+        mapping = {
+            "GOST:attack_surface": {"pkg:pypi/requests@2.32.5": "yes"},
+            "GOST:security_function": {"pkg:pypi/requests@2.32.5": "indirect"},
+        }
+        strip_component(comp, COMPONENT_STRIP_FIELDS, "no", purl_to_gost=mapping)
+        props = self._props(comp)
+        assert props["GOST:attack_surface"] == "yes"
+        assert props["GOST:security_function"] == "indirect"
+
+    def test_indirect_value_preserved(self):
+        """indirect — допустимый статус, его нельзя молча заменять на no."""
+        comp = self._component(
+            properties=[
+                {"name": "GOST:attack_surface", "value": "indirect"},
+                {"name": "GOST:security_function", "value": "indirect"},
+            ]
+        )
+        strip_component(comp, COMPONENT_STRIP_FIELDS, "no")
+        props = self._props(comp)
+        assert props["GOST:attack_surface"] == "indirect"
+        assert props["GOST:security_function"] == "indirect"
+
+    def test_duplicate_gost_properties_collapsed(self):
+        comp = self._component(
+            properties=[
+                {"name": "GOST:attack_surface", "value": "yes"},
+                {"name": "GOST:attack_surface", "value": "no"},
+                {"name": "GOST:attack_surface", "value": "indirect"},
+            ]
+        )
+        strip_component(comp, COMPONENT_STRIP_FIELDS, "no")
+        values = [p["value"] for p in comp["properties"] if p["name"] == "GOST:attack_surface"]
+        assert values == ["yes"]
+
+    def test_invalid_value_replaced_by_default(self):
+        comp = self._component(properties=[{"name": "GOST:security_function", "value": "ДА"}])
+        strip_component(comp, COMPONENT_STRIP_FIELDS, "no")
+        assert self._props(comp)["GOST:security_function"] == "no"
+
+    def test_provided_by_not_duplicated(self):
+        comp = self._component(properties=[{"name": "GOST:provided_by", "value": "ООО Старое"}])
+        mapping = {"GOST:provided_by": {"pkg:pypi/requests@2.32.5": "ООО Новое"}}
+        strip_component(comp, COMPONENT_STRIP_FIELDS, "no", purl_to_gost=mapping)
+        values = [p["value"] for p in comp["properties"] if p["name"] == "GOST:provided_by"]
+        assert values == ["ООО Новое"]
+
+    def test_blank_provided_by_does_not_replace_source(self):
+        """Пустой поставщик — не сведения об источнике: компонент всё равно нуждается в ссылке."""
+        comp = self._component(properties=[{"name": "GOST:provided_by", "value": ""}])
+        strip_component(comp, COMPONENT_STRIP_FIELDS, "no")
+        assert any(r.get("type") == "vcs" for r in comp.get("externalReferences", []))
+
+    def test_source_distribution_counts_as_source(self):
+        """Архив исходного кода — законный источник, заглушку TODO дописывать не нужно."""
+        comp = self._component()
+        comp["externalReferences"] = [{"type": "source-distribution", "url": "https://example.org/x.tar.gz"}]
+        strip_component(comp, COMPONENT_STRIP_FIELDS, "no")
+        urls = [r["url"] for r in comp["externalReferences"]]
+        assert "TODO" not in urls
+
+    def test_foreign_properties_dropped(self):
+        comp = self._component(
+            properties=[
+                {"name": "GOSTX:поддельное", "value": "1"},
+                {"name": "aquasecurity:trivy:PkgType", "value": "npm"},
+            ]
+        )
+        strip_component(comp, COMPONENT_STRIP_FIELDS, "no")
+        names = {p["name"] for p in comp["properties"]}
+        assert "GOSTX:поддельное" not in names
+        assert "aquasecurity:trivy:PkgType" not in names
+
+
+class TestMetadataPrecedence:
+    def test_cli_wins_over_config(self):
+        """--app-name должен перекрывать конфиг, иначе в титуле окажется чужое имя изделия."""
+        bom = make_bom([])
+        config = {"metadata": {"name": "Из конфига", "version": "9.9", "manufacturer": "ООО Конфиг"}}
+        ensure_metadata(bom, "Из CLI", "1.0", "ООО CLI", config=config)
+        meta = bom["metadata"]["component"]
+        assert meta["name"] == "Из CLI"
+        assert meta["version"] == "1.0"
+        assert meta["manufacturer"]["name"] == "ООО CLI"
+
+    def test_config_used_when_cli_silent(self):
+        bom = make_bom([])
+        bom["metadata"]["component"].pop("name")
+        config = {"metadata": {"name": "Из конфига"}}
+        ensure_metadata(bom, None, None, None, config=config)
+        assert bom["metadata"]["component"]["name"] == "Из конфига"

@@ -548,3 +548,101 @@ class TestLinkCheckOutcomes:
 
         checker.run(args_for(path, check_vcs=True))
         assert sorted(checked) == ["https://github.com/example/leaf", "https://github.com/example/parent"]
+
+
+class TestContainerSecurityFunction:
+    """Форма перечня образов проверяет обе ГОСТ-графы, а не только поверхность атаки."""
+
+    def _bom(self, container_value, component_value, prop="GOST:security_function"):
+        other = "GOST:attack_surface" if prop == "GOST:security_function" else "GOST:security_function"
+        component = gost_component("libssl", "3.0.0")
+        component["properties"] = [
+            {"name": prop, "value": component_value},
+            {"name": other, "value": "no"},
+        ]
+        container = {
+            "type": "container",
+            "name": "app-image",
+            "version": "1.0.0",
+            "description": "Образ сервиса",
+            "properties": [
+                {"name": prop, "value": container_value},
+                {"name": other, "value": "no"},
+            ],
+            "components": [component],
+        }
+        return make_bom([container])
+
+    def test_component_exceeding_container_security_function(self, write_json, capsys):
+        path = write_json("bom.json", self._bom("no", "yes"))
+        checker.run(args_for(path, format="container"))
+        assert "функции безопасности" in capsys.readouterr().out
+
+    def test_matching_security_function_passes(self, write_json, capsys):
+        path = write_json("bom.json", self._bom("yes", "yes"))
+        checker.run(args_for(path, format="container"))
+        assert "бóльшим значением функции безопасности" not in capsys.readouterr().out
+
+    def test_container_without_matching_component_reported(self, write_json, capsys):
+        """Контейнер заявляет уровень, которого нет ни у одного его компонента."""
+        path = write_json("bom.json", self._bom("yes", "no"))
+        checker.run(args_for(path, format="container"))
+        assert "не содержит компонентов" in capsys.readouterr().out
+
+    def test_indirect_is_between_yes_and_no(self, write_json, capsys):
+        """indirect — самостоятельный уровень: ниже yes, но выше no."""
+        path = write_json("bom.json", self._bom("no", "indirect"))
+        checker.run(args_for(path, format="container"))
+        assert "бóльшим значением" in capsys.readouterr().out
+
+    def test_indirect_component_under_yes_container_is_fine(self, write_json, capsys):
+        path = write_json("bom.json", self._bom("yes", "indirect", prop="GOST:attack_surface"))
+        checker.run(args_for(path, format="container"))
+        assert "бóльшим значением поверхности атаки" not in capsys.readouterr().out
+
+    def test_yes_component_under_indirect_container_reported(self, write_json, capsys):
+        """indirect строго ниже yes: компонент с yes превышает уровень контейнера."""
+        path = write_json("bom.json", self._bom("indirect", "yes", prop="GOST:attack_surface"))
+        checker.run(args_for(path, format="container"))
+        assert "бóльшим значением поверхности атаки" in capsys.readouterr().out
+
+
+class TestSchemaSelection:
+    def test_container_format_uses_container_schema(self, write_json, capsys):
+        """Форма образов предъявляет свои требования: у образа обязателен состав."""
+        path = write_json("bom.json", make_bom([complete_component()]))
+        code = checker.run(args_for(path, format="container"))
+        out = capsys.readouterr().out
+        assert code == 1
+        assert "'components' is a required property" in out
+
+    def test_oss_format_accepts_library(self, write_json):
+        path = write_json("bom.json", make_bom([complete_component()]))
+        assert checker.run(args_for(path)) == 0
+
+    def test_broken_schema_reported_as_failure(self, write_json, capsys, monkeypatch, tmp_path):
+        """Если сама схема сломана, команда обязана завершиться ошибкой, а не тишиной."""
+        broken = tmp_path / "schemas"
+        (broken / "").mkdir(parents=True, exist_ok=True)
+        (broken / "schema.json").write_text(json.dumps({"type": "не-тип"}), encoding="utf-8")
+        (tmp_path / "additional_schemas").mkdir(exist_ok=True)
+        for name in ("spdx.schema.json", "jsf-0.82.schema.json"):
+            source = checker._PKG_DIR / "additional_schemas" / name
+            (tmp_path / "additional_schemas" / name).write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+        monkeypatch.setattr(checker, "_PKG_DIR", tmp_path)
+
+        path = write_json("bom.json", make_bom([complete_component()]))
+        code = checker.run(args_for(path))
+        assert code == 1
+        assert "спецификации" in capsys.readouterr().out
+
+
+class TestUniquenessLimit:
+    def test_limit_applies_to_uniqueness_errors(self, write_json, capsys):
+        comp = complete_component()
+        duplicated = [comp, json.loads(json.dumps(comp)), json.loads(json.dumps(comp))]
+        bom = make_bom(duplicated)
+        bom["dependencies"] = [{"ref": "a", "dependsOn": ["z", "z"]}]
+        path = write_json("bom.json", bom)
+        checker.run(args_for(path, errors=1))
+        assert capsys.readouterr().out.count("ERROR:") == 1

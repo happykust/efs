@@ -646,3 +646,184 @@ class TestUniquenessLimit:
         path = write_json("bom.json", bom)
         checker.run(args_for(path, errors=1))
         assert capsys.readouterr().out.count("ERROR:") == 1
+
+
+class TestComponentOrder:
+    """Порядок обхода определяет, какие замечания попадут под ограничение `--errors`."""
+
+    def _names(self, components):
+        return [c["name"] for c in checker._iter_components(components)]
+
+    def test_top_level_components_in_document_order(self):
+        components = [make_component(name, "1.0") for name in ("первый", "второй", "третий")]
+        assert self._names(components) == ["первый", "второй", "третий"]
+
+    def test_parent_before_its_child(self):
+        parent = make_component("родитель", "1.0")
+        parent["components"] = [make_component("вложенный", "1.0")]
+        assert self._names([parent]) == ["родитель", "вложенный"]
+
+    def test_breadth_first_sibling_before_nephew(self):
+        parent = make_component("родитель", "1.0")
+        parent["components"] = [make_component("внук", "1.0")]
+        assert self._names([parent, make_component("сосед", "1.0")]) == ["родитель", "сосед", "внук"]
+
+    def test_readiness_limit_keeps_document_order(self, write_json, capsys):
+        components = []
+        for name in ("первый", "второй", "третий"):
+            comp = gost_component(name, "1.0")
+            comp["properties"] = [
+                {"name": "GOST:attack_surface", "value": "no"},
+                {"name": "GOST:security_function", "value": "no"},
+            ]
+            components.append(comp)
+        checker.run(args_for(write_json("bom.json", make_bom(components)), errors=1))
+        out = capsys.readouterr().out
+        assert "первый" in out
+        assert "третий" not in out
+
+
+class TestEveryContainerChecked:
+    """Проверка контейнеров не должна останавливаться на первом."""
+
+    def _bom(self, *container_names):
+        containers = []
+        for name in container_names:
+            component = gost_component(f"{name}-lib", "1.0.0")
+            component["properties"] = [
+                {"name": "GOST:attack_surface", "value": "yes"},
+                {"name": "GOST:security_function", "value": "no"},
+            ]
+            containers.append(
+                {
+                    "type": "container",
+                    "name": name,
+                    "version": "1.0.0",
+                    "properties": [
+                        {"name": "GOST:attack_surface", "value": "no"},
+                        {"name": "GOST:security_function", "value": "no"},
+                    ],
+                    "components": [component],
+                }
+            )
+        return make_bom(containers)
+
+    def test_second_container_also_reported(self, write_json, capsys):
+        checker.run(
+            args_for(write_json("bom.json", self._bom("первый-образ", "второй-образ")), format="container", errors=0)
+        )
+        out = capsys.readouterr().out
+        assert "первый-образ" in out
+        assert "второй-образ" in out
+
+    def test_all_containers_counted_in_exit_code(self, write_json):
+        code = checker.run(
+            args_for(write_json("bom.json", self._bom("первый-образ", "второй-образ")), format="container", errors=0)
+        )
+        assert code == 1
+
+
+class TestReadinessEmptyValues:
+    def test_empty_product_name_is_unfilled(self):
+        bom = make_bom([complete_component()])
+        bom["metadata"]["component"]["name"] = ""
+        assert checker.check_readiness(bom) == 1
+
+    def test_empty_product_version_is_unfilled(self):
+        bom = make_bom([complete_component()])
+        bom["metadata"]["component"]["version"] = ""
+        assert checker.check_readiness(bom) == 1
+
+    def test_empty_manufacturer_is_unfilled(self):
+        bom = make_bom([complete_component()])
+        bom["metadata"]["component"]["manufacturer"] = {"name": ""}
+        assert checker.check_readiness(bom) == 1
+
+    def test_todo_still_counts(self):
+        bom = make_bom([complete_component()])
+        bom["metadata"]["component"]["name"] = "TODO"
+        assert checker.check_readiness(bom) == 1
+
+
+class TestLinkCache:
+    """Кеш проверок: результаты не перепутываются и не проверяются повторно."""
+
+    def _bom_with_both_links(self):
+        comp = complete_component()
+        comp["externalReferences"] = [
+            {"type": "vcs", "url": "https://github.com/example/requests"},
+            {"type": "source-distribution", "url": "https://files.example.org/requests.tar.gz"},
+        ]
+        return make_bom([comp])
+
+    def _run(self, write_json, monkeypatch, cache=None, **overrides):
+        saved = {}
+        monkeypatch.setattr(checker, "load_cache", lambda kind: dict(cache.get(kind, {})) if cache else {})
+        monkeypatch.setattr(checker, "dump_cache", lambda kind, data: saved.__setitem__(kind, data))
+        monkeypatch.setattr(checker, "check_repo", lambda url: (True, ""))
+        monkeypatch.setattr(checker, "is_archive_url", lambda session, url: (False, "не архив"))
+        path = write_json("bom.json", self._bom_with_both_links())
+        checker.run(args_for(path, check_vcs=True, check_source_distribution=True, **overrides))
+        return saved
+
+    def test_results_land_in_their_own_cache(self, write_json, monkeypatch):
+        saved = self._run(write_json, monkeypatch)
+        assert saved["vcs"] == {"https://github.com/example/requests": True}
+        assert saved["source-distribution"] == {}
+
+    def test_cached_vcs_result_not_rechecked(self, write_json, monkeypatch):
+        checked = []
+        monkeypatch.setattr(
+            checker, "load_cache", lambda kind: {"https://github.com/example/requests": True} if kind == "vcs" else {}
+        )
+        monkeypatch.setattr(checker, "dump_cache", lambda kind, data: None)
+        monkeypatch.setattr(checker, "check_repo", lambda url: (checked.append(url), (True, ""))[1])
+        monkeypatch.setattr(checker, "is_archive_url", lambda session, url: (True, ""))
+        path = write_json("bom.json", self._bom_with_both_links())
+        checker.run(args_for(path, check_vcs=True))
+        assert checked == []
+
+    def test_cached_archive_result_not_rechecked(self, write_json, monkeypatch):
+        checked = []
+        monkeypatch.setattr(
+            checker,
+            "load_cache",
+            lambda kind: {"https://files.example.org/requests.tar.gz": True} if kind == "source-distribution" else {},
+        )
+        monkeypatch.setattr(checker, "dump_cache", lambda kind, data: None)
+        monkeypatch.setattr(checker, "check_repo", lambda url: (True, ""))
+        monkeypatch.setattr(checker, "is_archive_url", lambda session, url: (checked.append(url), (True, ""))[1])
+        path = write_json("bom.json", self._bom_with_both_links())
+        checker.run(args_for(path, check_source_distribution=True))
+        assert checked == []
+
+
+class TestVcsUrlNormalisation:
+    """Адреса вида gitbox/altlinux несут ревизию в query — проверяется очищенный адрес."""
+
+    def _checked_url(self, write_json, monkeypatch, url):
+        checked = []
+        monkeypatch.setattr(checker, "load_cache", lambda kind: {})
+        monkeypatch.setattr(checker, "dump_cache", lambda kind, data: None)
+        monkeypatch.setattr(checker, "check_repo", lambda u: (checked.append(u), (True, ""))[1])
+        comp = complete_component()
+        comp["externalReferences"] = [{"type": "vcs", "url": url}]
+        checker.run(args_for(write_json("bom.json", make_bom([comp])), check_vcs=True))
+        return checked
+
+    def test_url_without_revision_checked_as_is(self, write_json, monkeypatch):
+        url = "https://gitbox.apache.org/repos/asf?p=maven.git"
+        assert self._checked_url(write_json, monkeypatch, url) == [url]
+
+    def test_plain_url_checked_as_is(self, write_json, monkeypatch):
+        url = "https://github.com/psf/requests"
+        assert self._checked_url(write_json, monkeypatch, url) == [url]
+
+
+class TestSchemaFormatConstraints:
+    def test_broken_timestamp_is_a_schema_error(self, write_json, capsys):
+        bom = make_bom([complete_component()])
+        bom["metadata"]["timestamp"] = "вчера вечером"
+        code = checker.run(args_for(write_json("bom.json", bom)))
+        assert code == 1
+        assert "ERROR" in capsys.readouterr().out

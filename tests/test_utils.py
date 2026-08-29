@@ -444,3 +444,123 @@ class TestPropertyHelpers:
             {"name": "GOST:source_langs", "value": "C"},
         ]
         assert get_props(props, "GOST:source_langs") == ["Python", "C"]
+
+
+class TestRepositoryProbeOrder:
+    """Порядок проб: git → svn → hg → fossil. Он задан ценой ответа, менять его нельзя."""
+
+    def _commands(self, monkeypatch, get=None):
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="err")
+
+        monkeypatch.setattr(utils.subprocess, "run", fake_run)
+        monkeypatch.setattr(utils.requests, "get", get or (lambda url, **kw: FakeResponse(status=404)))
+        utils.check_repo("https://example.org/repo")
+        return calls
+
+    def test_git_asked_first(self, monkeypatch):
+        assert self._commands(monkeypatch)[0].startswith("git ls-remote")
+
+    def test_svn_asked_before_hg(self, monkeypatch):
+        commands = self._commands(monkeypatch)
+        assert commands[1].startswith("svn ls")
+        assert commands[2].startswith("hg identify")
+
+    def test_fossil_probed_last(self, monkeypatch):
+        asked = []
+        self._commands(monkeypatch, get=lambda url, **kw: (asked.append(url), FakeResponse(status=404))[1])
+        assert asked == ["https://example.org/repo"]
+
+    def test_successful_svn_stops_the_chain(self, monkeypatch):
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0 if cmd.startswith("svn ls") else 1, stdout="", stderr="err")
+
+        monkeypatch.setattr(utils.subprocess, "run", fake_run)
+        result, _ = utils.check_repo("https://svn.example.org/repo")
+        assert result is True
+        assert not any(cmd.startswith("hg identify") for cmd in calls)
+
+
+class TestFossilFooter:
+    """Футер fossil попадается в разном регистре — распознавание не должно от него зависеть."""
+
+    def _check(self, monkeypatch, body):
+        monkeypatch.setattr(
+            utils.subprocess,
+            "run",
+            lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, stdout="", stderr="err"),
+        )
+        monkeypatch.setattr(utils.requests, "get", lambda url, **kw: FakeResponse(status=200, text=body))
+        return utils.check_repo("https://fossil.example.org/repo")[0]
+
+    def test_lowercase_footer_recognised(self, monkeypatch):
+        body = '<div class="footer">\nthis page was generated in about 0.01s by fossil</div>'
+        assert self._check(monkeypatch, body) is True
+
+    def test_capitalised_footer_recognised(self, monkeypatch):
+        body = '<div class="footer">\nThis page was generated in about 0.01s by Fossil</div>'
+        assert self._check(monkeypatch, body) is True
+
+    def test_page_without_footer_rejected(self, monkeypatch):
+        assert self._check(monkeypatch, "<html>обычная страница</html>") is False
+
+
+class TestOpenerDuplicateKeysWithBom:
+    """Файл с BOM-сигнатурой проверяется на дубли ключей наравне с обычным."""
+
+    def _write(self, tmp_path, text, encoding):
+        path = tmp_path / "bom.json"
+        path.write_text(text, encoding=encoding)
+        return path
+
+    def test_duplicates_detected_in_bom_file(self, tmp_path):
+        path = self._write(tmp_path, '{"version": 1, "version": 2}', "utf-8-sig")
+        with pytest.raises(ValueError, match="Duplicate key"):
+            opener(str(path), pairs=True)
+
+    def test_duplicates_detected_in_plain_file(self, tmp_path):
+        path = self._write(tmp_path, '{"version": 1, "version": 2}', "utf-8")
+        with pytest.raises(ValueError, match="Duplicate key"):
+            opener(str(path), pairs=True)
+
+    def test_bom_file_encoding_reported(self, tmp_path):
+        path = self._write(tmp_path, '{"version": 1}', "utf-8-sig")
+        assert opener(str(path), pairs=True)[1] == "utf-8-sig"
+
+
+class TestArchiveRetryScope:
+    """GET-повтор нужен только когда HEAD запрещён: лишний запрос — лишняя нагрузка."""
+
+    def test_not_found_does_not_retry_with_get(self):
+        session = RecordingSession(head=FakeResponse(status=404))
+        result, _ = is_archive_url(session, "https://example.org/x")
+        assert result is False
+        assert [call[0] for call in session.calls] == ["head"]
+
+    def test_server_error_does_not_retry_with_get(self):
+        session = RecordingSession(head=FakeResponse(status=500))
+        result, _ = is_archive_url(session, "https://example.org/x")
+        assert result is False
+        assert [call[0] for call in session.calls] == ["head"]
+
+
+class TestPlaceholderReferences:
+    """Ссылка без url — не ссылка: в перечень такое попадать не должно."""
+
+    def test_reference_without_url_skipped(self):
+        comp = {"externalReferences": [{"type": "vcs"}, {"type": "website", "url": "https://example.org"}]}
+        assert utils.source_url(comp) == ""
+
+    def test_null_url_skipped(self):
+        comp = {"externalReferences": [{"type": "vcs", "url": None}]}
+        assert utils.source_url(comp) == ""
+
+    def test_null_url_not_named_as_source(self):
+        comp = {"externalReferences": [{"type": "vcs", "url": None}]}
+        assert source_reference(comp) == ""

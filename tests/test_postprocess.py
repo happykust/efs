@@ -1105,3 +1105,145 @@ class TestMetadataProductFields:
         mc = bom["metadata"]["component"]
         assert mc["type"] == "container"
         assert mc["description"] == "Образ веб-интерфейса"
+
+
+class TestStripFieldsPrecision:
+    """Исключения из очистки точечные: pedigree из конфига и description образа."""
+
+    def _component(self, **extra):
+        comp = make_component("requests", "2.32.5")
+        comp.update(extra)
+        return comp
+
+    def _config(self, **entry):
+        return {"components": {"pkg:pypi/requests": entry}} if entry else {}
+
+    def test_config_pedigree_survives(self):
+        comp = self._component()
+        config = self._config(pedigree={"notes": "Форк"})
+        strip_component(comp, COMPONENT_STRIP_FIELDS, "no", config=config)
+        assert comp["pedigree"] == {"notes": "Форк"}
+
+    def test_other_fields_still_stripped_when_pedigree_configured(self):
+        comp = self._component(description="лишнее описание", scope="required")
+        config = self._config(pedigree={"notes": "Форк"})
+        strip_component(comp, COMPONENT_STRIP_FIELDS, "no", config=config)
+        assert "description" not in comp
+        assert "scope" not in comp
+
+    def test_container_description_kept_but_scope_stripped(self):
+        comp = self._component(type="container", description="Образ", scope="required")
+        strip_component(comp, COMPONENT_STRIP_FIELDS, "no")
+        assert comp["description"] == "Образ"
+        assert "scope" not in comp
+
+    def test_library_description_stripped(self):
+        comp = self._component(description="npm package")
+        strip_component(comp, COMPONENT_STRIP_FIELDS, "no")
+        assert "description" not in comp
+
+
+class TestVcsMappingPrecedence:
+    """Точная запись с версией важнее записи без версии — иначе форк не отличить от апстрима."""
+
+    def _url(self, mapping):
+        comp = make_component("requests", "2.32.5")
+        strip_component(comp, COMPONENT_STRIP_FIELDS, "no", purl_to_vcs=mapping)
+        return comp["externalReferences"][0]["url"]
+
+    def test_exact_purl_wins(self):
+        mapping = {
+            "pkg:pypi/requests@2.32.5": "https://github.com/our-org/requests-fork",
+            "pkg:pypi/requests": "https://github.com/psf/requests",
+        }
+        assert self._url(mapping) == "https://github.com/our-org/requests-fork"
+
+    def test_bare_purl_used_when_no_exact_entry(self):
+        assert self._url({"pkg:pypi/requests": "https://github.com/psf/requests"}) == "https://github.com/psf/requests"
+
+    def test_placeholder_when_mapping_silent(self):
+        assert self._url({}) == "TODO"
+
+
+class TestProvidedByClearsEmptyVcs:
+    """У компонента из состава СЗИ пустая vcs-ссылка не должна оставаться в перечне."""
+
+    def _refs(self, url):
+        comp = make_component("crypto", "1.0.0", purl="pkg:generic/crypto@1.0.0")
+        comp["properties"] = [{"name": "GOST:provided_by", "value": "КриптоПро CSP"}]
+        comp["externalReferences"] = [{"type": "vcs", "url": url}]
+        strip_component(comp, COMPONENT_STRIP_FIELDS, "no")
+        return comp.get("externalReferences")
+
+    def test_empty_url_removed(self):
+        assert self._refs("") is None
+
+    def test_todo_url_removed(self):
+        assert self._refs("TODO") is None
+
+    def test_real_url_kept(self):
+        assert self._refs("https://github.com/org/crypto") == [{"type": "vcs", "url": "https://github.com/org/crypto"}]
+
+
+class TestStripRootEmptyValues:
+    def test_empty_dict_section_removed(self):
+        bom = make_bom([])
+        bom["formulation"] = {}
+        strip_root(bom, ROOT_STRIP_FIELDS)
+        assert "formulation" not in bom
+
+    def test_empty_list_section_removed(self):
+        bom = make_bom([])
+        bom["formulation"] = []
+        strip_root(bom, ROOT_STRIP_FIELDS)
+        assert "formulation" not in bom
+
+    def test_filled_section_kept(self):
+        bom = make_bom([])
+        bom["formulation"] = [{"bom-ref": "f-1"}]
+        strip_root(bom, ROOT_STRIP_FIELDS)
+        assert bom["formulation"] == [{"bom-ref": "f-1"}]
+
+
+class TestSeveralManifests:
+    """Trivy добавляет по манифесту на экосистему — связи каждого должны дойти до корня."""
+
+    def _bom(self):
+        bom = make_bom(
+            [
+                make_component("foo", "1.0.0", purl="pkg:npm/foo@1.0.0"),
+                make_component("bar", "2.0.0", purl="pkg:pypi/bar@2.0.0"),
+            ],
+            dependencies=[
+                {"ref": "manifest-npm", "dependsOn": ["pkg:npm/foo@1.0.0"]},
+                {"ref": "manifest-pypi", "dependsOn": ["pkg:pypi/bar@2.0.0"]},
+                {"ref": "pkg:npm/foo@1.0.0", "dependsOn": []},
+                {"ref": "pkg:pypi/bar@2.0.0", "dependsOn": []},
+            ],
+        )
+        bom["metadata"]["component"]["bom-ref"] = "root-ref"
+        bom["components"] += [
+            {"bom-ref": "manifest-npm", "type": "application", "name": "package-lock.json"},
+            {"bom-ref": "manifest-pypi", "type": "application", "name": "uv.lock"},
+        ]
+        return bom
+
+    def _root_deps(self, bom):
+        _remove_manifest_components(bom)
+        root = next(d for d in bom["dependencies"] if d["ref"] == "root-ref")
+        return sorted(root["dependsOn"])
+
+    def test_edges_of_every_manifest_reach_root(self):
+        assert self._root_deps(self._bom()) == ["pkg:npm/foo@1.0.0", "pkg:pypi/bar@2.0.0"]
+
+    def test_no_component_left_without_parent(self):
+        bom = self._bom()
+        _remove_manifest_components(bom)
+        parents = {dep for entry in bom["dependencies"] for dep in entry.get("dependsOn", [])}
+        assert {"pkg:npm/foo@1.0.0", "pkg:pypi/bar@2.0.0"} <= parents
+
+    def test_cascade_keeps_components_of_both_manifests(self):
+        bom = self._bom()
+        _remove_manifest_components(bom)
+        exclude_components(bom, ["pkg:npm/absent"])
+        assert sorted(c["name"] for c in bom["components"]) == ["bar", "foo"]

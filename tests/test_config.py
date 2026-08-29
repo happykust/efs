@@ -540,3 +540,85 @@ class TestMigrationSafety:
         components = json.loads((tmp_path / ".efs-config.json").read_text(encoding="utf-8"))["components"]
         assert "pkg:pypi/b" in components
         assert "pkg:pypi/a" not in components
+
+
+class TestLanguageTableCompleteness:
+    @pytest.mark.parametrize(
+        ("purl", "expected"),
+        [
+            ("pkg:gradle/org.example/lib@1.0", "Java"),
+            ("pkg:conan/zlib@1.3", "C++"),
+            ("pkg:swift/apple/swift-log@1.5", "Swift"),
+            ("pkg:cran/ggplot2@3.4", "R"),
+            ("pkg:hex/phoenix@1.7", "Elixir"),
+            ("pkg:pub/http@1.2", "Dart"),
+            ("pkg:cocoapods/AFNetworking@4.0", "Objective-C"),
+        ],
+    )
+    def test_every_declared_ecosystem_resolves(self, purl, expected):
+        assert guess_source_langs(purl) == expected
+
+    @pytest.mark.parametrize("purl", ["pkg:PyPI/requests@2.32.5", "pkg:NuGet/Newtonsoft.Json@13.0.3"])
+    def test_purl_type_is_case_insensitive(self, purl):
+        """Спецификация purl допускает любой регистр типа, и сканеры этим пользуются."""
+        assert guess_source_langs(purl) != ""
+
+    @pytest.mark.parametrize("value", ["urn:pypi/x", "0123npm/x", "npm/x", "простая строка"])
+    def test_language_not_invented_for_non_purl(self, value):
+        """Строка, не являющаяся purl, не должна давать язык — в документе он был бы выдуманным."""
+        assert guess_source_langs(value) == ""
+
+
+class TestConfigKeyMatching:
+    def test_key_case_preserved(self):
+        """Ключи NuGet и Maven регистрозависимы — приводить их к нижнему регистру нельзя."""
+        cfg = {"components": {"pkg:nuget/Newtonsoft.Json": {"vcs": "https://github.com/JamesNK/Newtonsoft.Json"}}}
+        assert get_vcs(cfg, "pkg:nuget/Newtonsoft.Json@13.0.3").endswith("Newtonsoft.Json")
+
+    @pytest.mark.parametrize("value", ["yes", 1, "true"])
+    def test_unknown_exclude_value_means_cascade(self, value):
+        """Любое непустое значение, кроме "direct", означает обычное исключение."""
+        cfg = {"components": {"pkg:npm/x": {"exclude": value}}}
+        assert is_excluded(cfg, "pkg:npm/x@1.0") is True
+
+    @pytest.mark.parametrize("value", [False, 0, "", None])
+    def test_falsy_exclude_means_kept(self, value):
+        cfg = {"components": {"pkg:npm/x": {"exclude": value}}}
+        assert is_excluded(cfg, "pkg:npm/x@1.0") is False
+
+
+class TestConfigGeneration:
+    def test_defaults_start_from_no(self, tmp_path, monkeypatch):
+        """Свежий конфиг не должен объявлять всё поверхностью атаки."""
+        monkeypatch.chdir(tmp_path)
+        init_config(make_bom([make_component("requests", "2.32.5")]))
+        defaults = json.loads((tmp_path / ".efs-config.json").read_text(encoding="utf-8"))["defaults"]
+        assert defaults["attack_surface"] == "no"
+        assert defaults["security_function"] == "no"
+
+    def test_nested_components_included(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        inner = make_component("nested", "2.0", purl="pkg:pypi/nested@2.0")
+        outer = make_component("parent", "1.0", purl="pkg:pypi/parent@1.0")
+        outer["components"] = [inner]
+        init_config(make_bom([outer]))
+        components = json.loads((tmp_path / ".efs-config.json").read_text(encoding="utf-8"))["components"]
+        assert {"pkg:pypi/parent", "pkg:pypi/nested"} <= set(components)
+
+
+class TestLegacyExportKeys:
+    def test_version_specific_key_preserved(self):
+        """Ключ с версией не должен схлопываться: vcs форка применился бы ко всем версиям."""
+        cfg = {"components": {"pkg:pypi/cryptography@42.0.0": {"vcs": "https://github.com/our-org/fork"}}}
+        mapping = config_to_purl_to_vcs(cfg)
+        assert "pkg:pypi/cryptography@42.0.0" in mapping
+        assert "pkg:pypi/cryptography" not in mapping
+
+
+class TestMigrationCleanup:
+    def test_empty_entries_not_created(self, tmp_path, monkeypatch, write_json):
+        write_json(".purl_to_gost.json", {"GOST:attack_surface": {"pkg:pypi/a": "no"}})
+        monkeypatch.chdir(tmp_path)
+        migrate_config()
+        components = json.loads((tmp_path / ".efs-config.json").read_text(encoding="utf-8"))["components"]
+        assert components == {}

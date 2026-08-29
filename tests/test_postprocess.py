@@ -136,8 +136,12 @@ class TestExcludeComponents:
         exclude_components(bom, ["pkg:npm/eslint"])
         assert [c["name"] for c in bom["components"]] == ["runtime-lib"]
 
-    def test_deep_transitive_chain_removed(self):
-        """Каскад идёт вглубь: удаляется вся цепочка, висящая только на исключённом узле."""
+    def test_cascade_stops_at_components_nobody_excluded(self):
+        """Каскад снимает лишь то, что держал только исключённый компонент.
+
+        Внук остаётся: его родитель под exclude не помечен, значит решения по нему
+        никто не принимал, а сам компонент по-прежнему поставляется.
+        """
         bom = make_bom(
             [
                 make_component("eslint", "8.0.0", purl="pkg:npm/eslint@8.0.0"),
@@ -151,7 +155,7 @@ class TestExcludeComponents:
             ],
         )
         exclude_components(bom, ["pkg:npm/eslint"])
-        assert bom["components"] == []
+        assert [c["name"] for c in bom["components"]] == ["acorn"]
 
     def test_nothing_to_exclude(self):
         bom = make_bom([make_component("requests", "2.32.5")])
@@ -347,3 +351,48 @@ class TestContainerPurpose:
         comp = make_component("requests", "2.32.5", description="HTTP for humans")
         strip_component(comp, COMPONENT_STRIP_FIELDS, "no")
         assert "description" not in comp
+
+
+class TestCascadeKeepsLiveParents:
+    def _bom(self):
+        def comp(name):
+            return make_component(name, "1.0", purl=f"pkg:npm/{name}@1.0")
+
+        def ref(name):
+            return f"pkg:npm/{name}@1.0"
+
+        return make_bom(
+            [comp(n) for n in ("our-plugin", "kepler", "deck-layers", "deck-core", "lodash")],
+            dependencies=[
+                {"ref": ref("our-plugin"), "dependsOn": [ref("kepler"), ref("deck-core")]},
+                {"ref": ref("kepler"), "dependsOn": [ref("deck-layers")]},
+                {"ref": ref("deck-layers"), "dependsOn": [ref("deck-core")]},
+                {"ref": ref("deck-core"), "dependsOn": []},
+                {"ref": ref("lodash"), "dependsOn": []},
+            ],
+        )
+
+    def test_component_with_unexcluded_parent_survives(self):
+        """У deck-core два родителя, исключён один — компонент поставляется и остаётся."""
+        bom = self._bom()
+        exclude_components(bom, ["pkg:npm/our-plugin"])
+        assert "deck-core" in [c["name"] for c in bom["components"]]
+
+    def test_only_child_of_excluded_removed(self):
+        """kepler держал только исключённый плагин — его в поставке больше нет."""
+        bom = self._bom()
+        exclude_components(bom, ["pkg:npm/our-plugin"])
+        names = [c["name"] for c in bom["components"]]
+        assert "our-plugin" not in names
+        assert "kepler" not in names
+
+    def test_grandchild_of_excluded_survives(self):
+        """deck-layers держал kepler, а он не помечен exclude — решение о нём не принималось."""
+        bom = self._bom()
+        exclude_components(bom, ["pkg:npm/our-plugin"])
+        assert "deck-layers" in [c["name"] for c in bom["components"]]
+
+    def test_unrelated_component_untouched(self):
+        bom = self._bom()
+        exclude_components(bom, ["pkg:npm/our-plugin"])
+        assert "lodash" in [c["name"] for c in bom["components"]]

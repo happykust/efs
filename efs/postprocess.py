@@ -19,7 +19,6 @@ sbom-checker (CycloneDX 1.6 + ГОСТ-расширения), убирая ли�
 import datetime
 import json
 import re
-from collections import deque
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -517,60 +516,26 @@ def exclude_components(bom, exclude_purls):
     refs_to_remove = set(direct_excluded)
 
     if dependencies:
-        # Построить граф зависимостей: ref → [dependsOn]
-        graph = {}
+        # Граф «кто от кого зависит» и обратный ему
+        children = {}
         for entry in dependencies:
-            ref = entry.get("ref", "")
-            graph[ref] = list(entry.get("dependsOn", []))
+            children[entry.get("ref", "")] = list(entry.get("dependsOn", []))
 
-        # Найти корень BOM (metadata.component.bom-ref)
-        root_ref = bom.get("metadata", {}).get("component", {}).get("bom-ref", "")
+        parents = {}
+        for ref, deps_list in children.items():
+            for dep in deps_list:
+                parents.setdefault(dep, []).append(ref)
 
-        # Построить «prod-граф» — копию графа без рёбер к direct_excluded
-        # Это эмулирует удаление dev-зависимостей из манифеста
-        prod_graph = {}
-        for ref, deps_list in graph.items():
-            if ref in direct_excluded:
+        # Компонент уходит вместе с исключённым, только если его больше никто не
+        # тянет: все его родители тоже исключены. Если хоть один родитель остаётся
+        # в перечне, компонент поставляется и должен быть задекларирован.
+        # Узлы без родителей — верхнеуровневые зависимости, их каскад не трогает.
+        for node in all_refs:
+            if node in refs_to_remove:
                 continue
-            prod_graph[ref] = [d for d in deps_list if d not in direct_excluded]
-
-        # BFS от корня (или всех не-excluded узлов) по prod-графу
-        # → всё достижимое — prod-зависимости, которые нужно сохранить
-        prod_reachable = set()
-        # Корни леса считаем по ИСХОДНОМУ графу: узел без входящих рёбер — это
-        # верхнеуровневая зависимость проекта, осиротевшая после удаления
-        # узлов-манифестов (uv.lock и т.п.). Если считать их по prod-графу,
-        # корнем становится и зависимость, которую держал только исключённый
-        # компонент, и каскад перестаёт работать вовсе.
-        referenced = set()
-        for _deps_list in graph.values():
-            referenced.update(_deps_list)
-        forest_roots = {n for n in prod_graph if n not in referenced}
-        prod_starts = forest_roots | ({root_ref} if root_ref else set())
-        queue = deque(prod_starts)
-        while queue:
-            node = queue.popleft()
-            if node in prod_reachable:
-                continue
-            prod_reachable.add(node)
-            for child in prod_graph.get(node, []):
-                if child not in prod_reachable:
-                    queue.append(child)
-
-        # BFS от excluded вниз по оригинальному графу — все потомки excluded
-        dev_reachable = set()
-        queue = deque(direct_excluded)
-        while queue:
-            node = queue.popleft()
-            if node in dev_reachable:
-                continue
-            dev_reachable.add(node)
-            for child in graph.get(node, []):
-                if child not in dev_reachable:
-                    queue.append(child)
-
-        # Удаляем: всё что достижимо из excluded, но НЕ достижимо из prod
-        refs_to_remove = dev_reachable - prod_reachable
+            node_parents = parents.get(node)
+            if node_parents and all(parent in direct_excluded for parent in node_parents):
+                refs_to_remove.add(node)
 
         # Очистить секцию dependencies
         bom["dependencies"] = [d for d in dependencies if d.get("ref", "") not in refs_to_remove]

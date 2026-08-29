@@ -3,6 +3,7 @@
 
 """Сквозные тесты CLI: каждая команда должна быть зарегистрирована и отрабатывать."""
 
+import importlib
 import json
 
 import pytest
@@ -520,3 +521,248 @@ class TestScanWithoutConfig:
         assert result.exit_code != 0
         assert started == []
         assert "--tool" in result.output
+
+
+@pytest.fixture
+def captured_args(monkeypatch):
+    """Перехват args, которые CLI передаёт модулю: проверяем проводку опций, а не работу модуля."""
+    captured = {}
+
+    def capture(module_name):
+        module = importlib.import_module(module_name)
+
+        def fake_run(args, *rest, **kwargs):
+            captured["args"] = args
+            return 0
+
+        monkeypatch.setattr(module, "run", fake_run)
+
+    capture("efs.checker")
+    capture("efs.updater")
+    capture("efs.unifier")
+    capture("efs.postprocess")
+    return captured
+
+
+class TestCheckOptionsWiring:
+    def test_error_limit_defaults_to_ten(self, bom_file, captured_args):
+        runner.invoke(app, ["check", str(bom_file)])
+        assert captured_args["args"].errors == 10
+
+    def test_error_limit_overridden(self, bom_file, captured_args):
+        runner.invoke(app, ["check", str(bom_file), "-e", "3"])
+        assert captured_args["args"].errors == 3
+
+    def test_check_vcs_does_not_enable_leaf_only(self, bom_file, captured_args):
+        runner.invoke(app, ["check", str(bom_file), "--check-vcs"])
+        args = captured_args["args"]
+        assert (args.check_vcs, args.check_vcs_leaf_only) == (True, False)
+
+    def test_leaf_only_does_not_enable_full_check(self, bom_file, captured_args):
+        runner.invoke(app, ["check", str(bom_file), "--check-vcs-leaf-only"])
+        args = captured_args["args"]
+        assert (args.check_vcs, args.check_vcs_leaf_only) == (False, True)
+
+    def test_source_distribution_is_independent(self, bom_file, captured_args):
+        runner.invoke(app, ["check", str(bom_file), "--check-source-distribution"])
+        args = captured_args["args"]
+        assert (args.check_vcs, args.check_source_distribution) == (False, True)
+
+    def test_vcs_check_does_not_enable_source_distribution(self, bom_file, captured_args):
+        runner.invoke(app, ["check", str(bom_file), "--check-vcs"])
+        assert captured_args["args"].check_source_distribution is False
+
+    def test_format_defaults_to_oss(self, bom_file, captured_args):
+        runner.invoke(app, ["check", str(bom_file)])
+        assert captured_args["args"].format == "oss"
+
+
+class TestUpdateOptionsWiring:
+    def test_mapping_files_not_swapped(self, bom_file, tmp_path, captured_args):
+        vcs, gost = tmp_path / "vcs.json", tmp_path / "gost.json"
+        for path in (vcs, gost):
+            path.write_text("{}", encoding="utf-8")
+        runner.invoke(
+            app,
+            ["update", str(bom_file), str(tmp_path / "o.json"), "--purl-to-vcs", str(vcs), "--purl-to-gost", str(gost)],
+        )
+        args = captured_args["args"]
+        assert (args.purl_to_vcs, args.purl_to_gost) == (str(vcs), str(gost))
+
+    def test_ref_does_not_enable_props(self, bom_file, tmp_path, captured_args):
+        runner.invoke(app, ["update", str(bom_file), str(tmp_path / "o.json"), "--ref"])
+        args = captured_args["args"]
+        assert (args.ref, args.props) == (True, False)
+
+    def test_props_does_not_enable_ref(self, bom_file, tmp_path, captured_args):
+        runner.invoke(app, ["update", str(bom_file), str(tmp_path / "o.json"), "--props"])
+        args = captured_args["args"]
+        assert (args.ref, args.props) == (False, True)
+
+    def test_flags_are_off_by_default(self, bom_file, tmp_path, captured_args):
+        runner.invoke(app, ["update", str(bom_file), str(tmp_path / "o.json")])
+        args = captured_args["args"]
+        assert (args.gost, args.fix_all, args.props, args.ref) == (False, False, False, False)
+
+    def test_metadata_options_land_in_own_fields(self, bom_file, tmp_path, captured_args):
+        runner.invoke(
+            app,
+            [
+                "update",
+                str(bom_file),
+                str(tmp_path / "o.json"),
+                "--app-name",
+                "Продукт",
+                "--app-version",
+                "9.9",
+                "--manufacturer",
+                "ООО Изготовитель",
+            ],
+        )
+        args = captured_args["args"]
+        assert (args.app_name, args.app_version, args.manufacturer) == ("Продукт", "9.9", "ООО Изготовитель")
+
+    def test_input_not_overwritten_without_output(self, bom_file):
+        """Без выходного файла команда обязана отказать, а не переписать вход."""
+        before = bom_file.read_text(encoding="utf-8")
+        result = runner.invoke(app, ["update", str(bom_file)])
+        assert result.exit_code != 0
+        assert bom_file.read_text(encoding="utf-8") == before
+
+
+class TestPostprocessOptionsWiring:
+    def _args(self, bom_file, tmp_path, captured_args, *extra):
+        runner.invoke(app, ["postprocess", str(bom_file), str(tmp_path / "o.json"), *extra])
+        return captured_args["args"]
+
+    def test_gost_default_is_no(self, bom_file, tmp_path, captured_args):
+        assert self._args(bom_file, tmp_path, captured_args).gost_default == "no"
+
+    def test_gost_default_overridden(self, bom_file, tmp_path, captured_args):
+        assert self._args(bom_file, tmp_path, captured_args, "--gost-default", "indirect").gost_default == "indirect"
+
+    def test_optional_fields_stripped_by_default(self, bom_file, tmp_path, captured_args):
+        assert self._args(bom_file, tmp_path, captured_args).keep_all_fields is False
+
+    def test_json_formatted_by_default(self, bom_file, tmp_path, captured_args):
+        assert self._args(bom_file, tmp_path, captured_args).pretty is True
+
+    def test_no_pretty_switches_formatting_off(self, bom_file, tmp_path, captured_args):
+        assert self._args(bom_file, tmp_path, captured_args, "--no-pretty").pretty is False
+
+    def test_provided_by_passed_through(self, bom_file, tmp_path, captured_args):
+        args = self._args(bom_file, tmp_path, captured_args, "--provided-by", "СЗИ «Аврора»")
+        assert args.provided_by == "СЗИ «Аврора»"
+
+    def test_mapping_files_not_swapped(self, bom_file, tmp_path, captured_args):
+        vcs, gost = tmp_path / "vcs.json", tmp_path / "gost.json"
+        for path in (vcs, gost):
+            path.write_text("{}", encoding="utf-8")
+        args = self._args(bom_file, tmp_path, captured_args, "--purl-to-vcs", str(vcs), "--purl-to-gost", str(gost))
+        assert (args.purl_to_vcs, args.purl_to_gost) == (str(vcs), str(gost))
+
+
+class TestMergeOptionsWiring:
+    def test_product_fields_not_swapped(self, bom_file, tmp_path, captured_args):
+        runner.invoke(
+            app,
+            [
+                "merge",
+                str(bom_file),
+                str(tmp_path / "out.json"),
+                "--app-name",
+                "Продукт",
+                "--app-version",
+                "3.1.2",
+                "--manufacturer",
+                "ООО Ромашка",
+            ],
+        )
+        args = captured_args["args"]
+        assert (args.app_name, args.app_version, args.manufacturer) == ("Продукт", "3.1.2", "ООО Ромашка")
+
+    def test_last_path_is_the_output(self, bom_file, tmp_path, captured_args):
+        out = tmp_path / "out.json"
+        runner.invoke(
+            app,
+            [
+                "merge",
+                str(bom_file),
+                str(bom_file),
+                str(out),
+                "--app-name",
+                "П",
+                "--app-version",
+                "1",
+                "--manufacturer",
+                "О",
+            ],
+        )
+        args = captured_args["args"]
+        assert args.output == str(out)
+        assert args.input == [str(bom_file), str(bom_file)]
+
+
+class TestVerboseFlag:
+    def test_verbose_off_by_default(self, bom_file, captured_args):
+        runner.invoke(app, ["check", str(bom_file)])
+        assert captured_args["args"].verbose is False
+
+    def test_verbose_enabled_by_flag(self, bom_file, captured_args):
+        runner.invoke(app, ["-v", "check", str(bom_file)])
+        assert captured_args["args"].verbose is True
+
+    def test_verbose_reaches_other_commands(self, bom_file, tmp_path, captured_args):
+        runner.invoke(app, ["--verbose", "postprocess", str(bom_file), str(tmp_path / "o.json")])
+        assert captured_args["args"].verbose is True
+
+
+class TestConfigFindVcs:
+    """Поиск VCS не трогает компоненты, по которым решение уже принято."""
+
+    def _run(self, tmp_path, monkeypatch, components):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".efs-config.json").write_text(
+            json.dumps({"components": components}, ensure_ascii=False), encoding="utf-8"
+        )
+        seen = []
+
+        class FakeFinder:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def process_purl(self, purl):
+                seen.append(purl)
+                return "sbom-updater_generated_placeholder:"
+
+            def dump_repos(self):
+                pass
+
+        monkeypatch.setattr("efs.updater.RefFinder", FakeFinder)
+        runner.invoke(app, ["config", "find-vcs"])
+        return seen
+
+    def test_component_with_provided_by_skipped(self, tmp_path, monkeypatch):
+        seen = self._run(
+            tmp_path,
+            monkeypatch,
+            {"pkg:generic/crypto": {"provided_by": "КриптоПро CSP"}, "pkg:pypi/requests": {}},
+        )
+        assert seen == ["pkg:pypi/requests"]
+
+    def test_component_with_vcs_skipped(self, tmp_path, monkeypatch):
+        seen = self._run(
+            tmp_path,
+            monkeypatch,
+            {"pkg:pypi/flask": {"vcs": "https://github.com/pallets/flask"}, "pkg:pypi/requests": {}},
+        )
+        assert seen == ["pkg:pypi/requests"]
+
+    def test_excluded_component_skipped(self, tmp_path, monkeypatch):
+        seen = self._run(tmp_path, monkeypatch, {"pkg:pypi/pytest": {"exclude": True}, "pkg:pypi/requests": {}})
+        assert seen == ["pkg:pypi/requests"]
+
+    def test_explicitly_kept_component_still_searched(self, tmp_path, monkeypatch):
+        """`exclude: false` — приказ оставить компонент, а не отказ от поиска ссылки."""
+        seen = self._run(tmp_path, monkeypatch, {"pkg:npm/assert": {"exclude": False}})
+        assert seen == ["pkg:npm/assert"]

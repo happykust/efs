@@ -625,9 +625,9 @@ class TestDistroResolverDetails:
     def test_deb_falls_back_to_versions_list(self, finder):
         responses.get(
             "https://sources.debian.org/api/src/curl/",
-            json={"info": {}, "versions": [{"area": "main"}, {"vcs_git": "https://salsa.debian.org/debian/curl.git"}]},
+            json={"info": {}, "versions": [{"area": "main"}, {"vcs_git": "https://git.example.org/debian/curl.git"}]},
         )
-        assert finder._deb_purl("pkg:deb/debian/curl@7.88.1")[0] == "https://salsa.debian.org/debian/curl"
+        assert finder._deb_purl("pkg:deb/debian/curl@7.88.1")[0] == "https://git.example.org/debian/curl"
 
     @responses.activate
     def test_deb_altlinux_candidates_present(self, finder):

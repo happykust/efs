@@ -74,6 +74,8 @@ def check_uniqueness(node, path="$"):
         for index, item in enumerate(node):
             issues += check_uniqueness(item, f"{path}[{index}]")
     return issues
+
+
 _REQUIRED_GOST_PROPS = ("GOST:attack_surface", "GOST:security_function")
 
 

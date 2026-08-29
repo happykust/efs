@@ -5,7 +5,10 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 проект следует [семантическому версионированию](https://semver.org/lang/ru/).
 
-## [Unreleased]
+## [1.0.0] — 2026-08-29
+
+Первый выпуск под именем `efs-sbom`. Раздел «Изменено» описывает, чем релиз
+отличается от предшественника — пакета `sbom-utils`, который не публиковался.
 
 ### Изменено (breaking)
 
@@ -118,11 +121,12 @@
 - `rich` добавлен в явные зависимости: модули использовали его, полагаясь на
   транзитивную установку через typer.
 
-## [1.0.0]
+## Предыстория
 
-Первая версия под именем `sbom-utils`: единая CLI-точка входа, единый конфиг
-`.sbom-config.json`, команды `check`, `update`, `merge`, `postprocess`, `scan`,
-`export`, `config`, `init`.
+Проект вырос из `sbom-checker` (ИСП РАН) и до переименования назывался
+`sbom-utils`: единая CLI-точка входа, единый конфиг, команды `check`, `update`,
+`merge`, `postprocess`, `scan`, `export`, `config`, `init`. Под именем `sbom-utils`
+пакет не публиковался, поэтому первым выпуском считается 1.0.0 под именем
+`efs-sbom`.
 
-[Unreleased]: https://github.com/happykust/efs/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/happykust/efs/releases/tag/v1.0.0

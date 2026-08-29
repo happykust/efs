@@ -54,7 +54,7 @@ dependencies = [
 Homepage = "https://github.com/happykust/efs"
 Repository = "https://github.com/happykust/efs"
 Issues = "https://github.com/happykust/efs/issues"
-Changelog = "https://github.com/happykust/efs/blob/master/CHANGELOG.md"
+Changelog = "https://github.com/happykust/efs/blob/main/CHANGELOG.md"
 
 [project.scripts]
 efs = "efs.cli:main"

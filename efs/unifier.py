@@ -213,7 +213,9 @@ def _merge_standard(args, files):
     for data, _ in files:
         new_data = data["metadata"]["component"].copy()
         for key in keys:
-            if key in data:
+            # Сведения о самом сервисе важнее корневых полей документа: заданные
+            # вручную ГОСТ-свойства не должны затираться свойствами всего BOM.
+            if key in data and key not in new_data:
                 new_data[key] = data[key]
         if "properties" not in new_data:
             new_data["properties"] = []

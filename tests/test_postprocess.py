@@ -18,12 +18,12 @@ from efs.postprocess import (
     _remove_manifest_components,
     _split_exclude,
     ensure_metadata,
-    exclude_components,
     ensure_root,
+    exclude_components,
     process_bom,
     run,
-    strip_root,
     strip_component,
+    strip_root,
 )
 
 from .conftest import make_bom, make_component

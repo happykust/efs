@@ -279,7 +279,9 @@ class TestArchiveDetection:
     def test_content_disposition_used_when_url_has_no_extension(self):
         """Дистрибутив часто отдаётся по «безрасширенному» адресу с именем файла в заголовке."""
         session = RecordingSession(
-            head=FakeResponse({"Content-Type": "text/html", "Content-Disposition": 'attachment; filename=pkg-1.0.tar.gz'})
+            head=FakeResponse(
+                {"Content-Type": "text/html", "Content-Disposition": "attachment; filename=pkg-1.0.tar.gz"}
+            )
         )
         result, _ = is_archive_url(session, "https://example.org/download?id=42")
         assert result is True

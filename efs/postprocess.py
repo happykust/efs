@@ -623,17 +623,20 @@ def process_bom(
     if n_manifests:
         print(f"  Удалено манифестов (pom.xml/lock-файлы): {n_manifests}")
 
-    n_direct = 0
-    if purl_exclude_direct:
-        n_direct = _exclude_direct(bom, purl_exclude_direct)
-        if n_direct:
-            print(f"  Исключено напрямую (без каскада): {n_direct}")
-
+    # Каскад идёт первым: для него компоненты с exclude="direct" — обычные живые
+    # родители. Иначе, удалив их заранее, мы бы сочли их зависимости висящими
+    # только на исключённых и вынесли бы из перечня то, что продукт поставляет.
     n_excluded = 0
     if purl_exclude:
         n_excluded = exclude_components(bom, purl_exclude)
         if n_excluded:
             print(f"  Исключено компонентов (с транзитивными): {n_excluded}")
+
+    n_direct = 0
+    if purl_exclude_direct:
+        n_direct = _exclude_direct(bom, purl_exclude_direct)
+        if n_direct:
+            print(f"  Исключено напрямую (без каскада): {n_direct}")
 
     if not args.strip_only:
         ensure_metadata(bom, args.app_name, args.app_version, args.manufacturer, config)

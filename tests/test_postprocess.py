@@ -3,6 +3,8 @@
 
 """Тесты постобработки SBOM: purl-матчинг, исключения, очистка полей, metadata."""
 
+from types import SimpleNamespace
+
 import pytest
 
 from efs.postprocess import (
@@ -14,6 +16,7 @@ from efs.postprocess import (
     _split_exclude,
     ensure_metadata,
     exclude_components,
+    process_bom,
     strip_component,
 )
 
@@ -395,4 +398,50 @@ class TestCascadeKeepsLiveParents:
     def test_unrelated_component_untouched(self):
         bom = self._bom()
         exclude_components(bom, ["pkg:npm/our-plugin"])
+        assert "lodash" in [c["name"] for c in bom["components"]]
+
+
+class TestDirectParentCountsAsKept:
+    def _bom(self):
+        def comp(name):
+            return make_component(name, "1.0", purl=f"pkg:npm/{name}@1.0")
+
+        def ref(name):
+            return f"pkg:npm/{name}@1.0"
+
+        return make_bom(
+            [comp(n) for n in ("our-preset", "nomnom", "underscore", "lodash")],
+            dependencies=[
+                {"ref": ref("our-preset"), "dependsOn": [ref("underscore")]},
+                {"ref": ref("nomnom"), "dependsOn": [ref("underscore")]},
+                {"ref": ref("underscore"), "dependsOn": []},
+                {"ref": ref("lodash"), "dependsOn": []},
+            ],
+        )
+
+    def _run(self, bom):
+        args = SimpleNamespace(
+            input="", output="", app_name=None, app_version=None, manufacturer=None,
+            gost_default="no", strip_only=False, keep_all_fields=False, provided_by=None,
+            purl_to_vcs=None, purl_to_gost=None, purl_exclude=None, config=None, pretty=True,
+        )
+        return process_bom(
+            bom, args,
+            purl_exclude=["pkg:npm/nomnom"],
+            purl_exclude_direct=["pkg:npm/our-preset"],
+        )
+
+    def test_dependency_of_direct_parent_survives_cascade(self):
+        """underscore тянут наш пресет (direct) и nomnom (true) — direct-родитель оставлен, значит и он."""
+        bom = self._run(self._bom())
+        assert "underscore" in [c["name"] for c in bom["components"]]
+
+    def test_both_excluded_components_removed(self):
+        bom = self._run(self._bom())
+        names = [c["name"] for c in bom["components"]]
+        assert "our-preset" not in names
+        assert "nomnom" not in names
+
+    def test_unrelated_component_untouched(self):
+        bom = self._run(self._bom())
         assert "lodash" in [c["name"] for c in bom["components"]]

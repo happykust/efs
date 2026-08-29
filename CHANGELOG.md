@@ -5,7 +5,7 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 проект следует [семантическому версионированию](https://semver.org/lang/ru/).
 
-## [Unreleased]
+## [1.0.1] — 2026-08-29
 
 ### Исправлено
 
@@ -147,5 +147,5 @@
 пакет не публиковался, поэтому первым выпуском считается 1.0.0 под именем
 `efs-sbom`.
 
-[Unreleased]: https://github.com/happykust/efs/compare/v1.0.0...HEAD
+[1.0.1]: https://github.com/happykust/efs/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/happykust/efs/releases/tag/v1.0.0

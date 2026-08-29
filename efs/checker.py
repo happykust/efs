@@ -17,6 +17,63 @@ from .utils import check_repo, dump_cache, get_prop, is_archive_url, load_cache,
 _PKG_DIR = Path(__file__).parent.resolve()
 
 _PLACEHOLDER_URLS = {"TODO", "", "sbom-updater_generated_placeholder:", None}
+
+# Массивы, для которых CycloneDX требует уникальности элементов.
+_UNIQUE_ARRAYS = (
+    "components",
+    "services",
+    "dependencies",
+    "dependsOn",
+    "provides",
+    "vulnerabilities",
+    "affects",
+    "compositions",
+    "assemblies",
+    "annotations",
+    "subjects",
+    "formulation",
+)
+
+
+def _strip_unique_items(node):
+    """Убрать uniqueItems из схемы.
+
+    jsonschema проверяет уникальность массивов объектов попарным сравнением — на
+    перечне в тысячи зависимостей это занимает десятки секунд. Уникальность
+    проверяется отдельно за линейное время, см. check_uniqueness().
+    """
+    if isinstance(node, dict):
+        node.pop("uniqueItems", None)
+        for value in node.values():
+            _strip_unique_items(value)
+    elif isinstance(node, list):
+        for value in node:
+            _strip_unique_items(value)
+    return node
+
+
+def check_uniqueness(node, path="$"):
+    """Найти повторяющиеся элементы в массивах, требующих уникальности."""
+    issues = []
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key in _UNIQUE_ARRAYS and isinstance(value, list):
+                seen = set()
+                duplicates = []
+                for item in value:
+                    marker = json.dumps(item, sort_keys=True, ensure_ascii=False)
+                    if marker in seen:
+                        if marker not in duplicates:
+                            duplicates.append(marker)
+                    else:
+                        seen.add(marker)
+                for marker in duplicates:
+                    issues.append(f"{path}['{key}'] содержит повторяющиеся элементы (non-unique): {marker[:200]}")
+            issues += check_uniqueness(value, f"{path}['{key}']")
+    elif isinstance(node, list):
+        for index, item in enumerate(node):
+            issues += check_uniqueness(item, f"{path}[{index}]")
+    return issues
 _REQUIRED_GOST_PROPS = ("GOST:attack_surface", "GOST:security_function")
 
 
@@ -114,7 +171,7 @@ def run(args):
         with open(
             _PKG_DIR / "schemas" / ("schema_container.json" if args.format == "container" else "schema.json")
         ) as f:
-            schema = json.load(f)
+            schema = _strip_unique_items(json.load(f))
         cls = jsonschema.validators.validator_for(schema)
         cls.check_schema(schema)
         if registry:
@@ -124,6 +181,13 @@ def run(args):
         errors = validator.iter_errors(parsed_file)
         count = 0
         limit = args.errors
+
+        for issue in check_uniqueness(parsed_file):
+            count += 1
+            print(f"ERROR: {issue}")
+            print("-" * 50)
+            if limit and count == limit:
+                break
         for err in errors:
             count += 1
             if err.message.endswith(" has non-unique elements"):

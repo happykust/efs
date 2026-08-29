@@ -3,6 +3,7 @@
 
 """Тесты валидации SBOM по JSON Schema и проверок внешних ссылок."""
 
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -311,3 +312,43 @@ class TestCheckProgress:
         path = write_json("bom.json", make_bom([complete_component()]))
         checker.run(args_for(path))
         assert "проверка ссылок" not in capsys.readouterr().out.lower()
+
+
+class TestUniqueness:
+    def _bom_with_duplicates(self):
+        comp = complete_component()
+        return make_bom([comp, json.loads(json.dumps(comp))])
+
+    def test_duplicate_components_reported(self, write_json, capsys):
+        path = write_json("bom.json", self._bom_with_duplicates())
+        code = checker.run(args_for(path))
+        out = capsys.readouterr().out
+        assert code == 1
+        assert "non-unique" in out.lower() or "неуникальные" in out.lower()
+
+    def test_duplicate_dependencies_reported(self, write_json, capsys):
+        bom = make_bom([complete_component()])
+        bom["dependencies"] = [{"ref": "pkg:pypi/requests@2.32.5"}, {"ref": "pkg:pypi/requests@2.32.5"}]
+        path = write_json("bom.json", bom)
+        assert checker.run(args_for(path)) == 1
+
+    def test_unique_document_passes(self, write_json):
+        bom = make_bom([complete_component("requests"), complete_component("flask")])
+        bom["dependencies"] = [{"ref": "a"}, {"ref": "b"}]
+        assert checker.run(args_for(write_json("bom.json", bom))) == 0
+
+    def test_large_dependency_graph_checked_quickly(self, write_json):
+        """Проверка не должна быть квадратичной: у trivy зависимостей столько же, сколько компонентов."""
+        import time
+
+        components = [complete_component(f"lib{i}", f"1.{i}.0") for i in range(300)]
+        bom = make_bom(components)
+        bom["dependencies"] = [
+            {"ref": f"pkg:pypi/lib{i}@1.{i}.0", "dependsOn": [f"pkg:pypi/lib{j}@1.{j}.0" for j in range(i % 5)]}
+            for i in range(6000)
+        ]
+        path = write_json("bom.json", bom)
+
+        start = time.perf_counter()
+        checker.run(args_for(path, errors=1))
+        assert time.perf_counter() - start < 10

@@ -1026,3 +1026,82 @@ class TestToolRecord:
         bom["metadata"]["tools"] = {"components": []}
         process_bom(bom, postprocess_args(strip_only=True))
         assert self._tools(bom) == []
+
+
+class TestMetadataProductFields:
+    """Поля самого продукта: их требует `efs check`, а задать их можно только через конфиг."""
+
+    def _config(self, **metadata):
+        base = {"name": "RT.DataVision", "version": "3.1.2", "manufacturer": {"name": "ООО Ромашка"}}
+        base.update(metadata)
+        return {"metadata": base}
+
+    def _process(self, bom=None, **metadata):
+        bom = bom if bom is not None else make_bom([])
+        return process_bom(bom, postprocess_args(), config=self._config(**metadata))
+
+    def test_description_from_config(self):
+        bom = self._process(description="Веб-интерфейс аналитической платформы")
+        assert bom["metadata"]["component"]["description"] == "Веб-интерфейс аналитической платформы"
+
+    def test_description_dropped_when_config_silent(self):
+        """Описание из вывода сканера по-прежнему выбрасывается: его пишет не человек."""
+        bom = make_bom([])
+        bom["metadata"]["component"]["description"] = "npm package"
+        bom = self._process(bom)
+        assert "description" not in bom["metadata"]["component"]
+
+    def test_config_description_replaces_scanner_one(self):
+        bom = make_bom([])
+        bom["metadata"]["component"]["description"] = "npm package"
+        bom = self._process(bom, description="Образ веб-интерфейса")
+        assert bom["metadata"]["component"]["description"] == "Образ веб-интерфейса"
+
+    def test_vcs_from_config(self):
+        bom = self._process(vcs="https://gitlab.example.ru/rtdv/frontend")
+        refs = bom["metadata"]["component"]["externalReferences"]
+        assert refs == [{"type": "vcs", "url": "https://gitlab.example.ru/rtdv/frontend"}]
+
+    def test_existing_vcs_reference_wins(self):
+        bom = make_bom([])
+        bom["metadata"]["component"]["externalReferences"] = [{"type": "vcs", "url": "https://existing.example/repo"}]
+        bom = self._process(bom, vcs="https://gitlab.example.ru/rtdv/frontend")
+        urls = [r["url"] for r in bom["metadata"]["component"]["externalReferences"]]
+        assert urls == ["https://existing.example/repo"]
+
+    def test_vcs_added_next_to_other_reference_types(self):
+        bom = make_bom([])
+        bom["metadata"]["component"]["externalReferences"] = [{"type": "website", "url": "https://example.ru"}]
+        bom = self._process(bom, vcs="https://gitlab.example.ru/rtdv/frontend")
+        refs = bom["metadata"]["component"]["externalReferences"]
+        assert [r["type"] for r in refs] == ["website", "vcs"]
+
+    def test_provided_by_from_config(self):
+        bom = self._process(provided_by="СЗИ «Аврора»")
+        props = bom["metadata"]["component"]["properties"]
+        assert props == [{"name": "GOST:provided_by", "value": "СЗИ «Аврора»"}]
+
+    def test_provided_by_not_duplicated(self):
+        bom = self._process(provided_by="СЗИ «Аврора»")
+        bom = process_bom(bom, postprocess_args(), config=self._config(provided_by="СЗИ «Аврора»"))
+        names = [p["name"] for p in bom["metadata"]["component"]["properties"]]
+        assert names == ["GOST:provided_by"]
+
+    def test_existing_provided_by_wins(self):
+        bom = make_bom([])
+        bom["metadata"]["component"]["properties"] = [{"name": "GOST:provided_by", "value": "СЗИ «Заслон»"}]
+        bom = self._process(bom, provided_by="СЗИ «Аврора»")
+        assert bom["metadata"]["component"]["properties"] == [{"name": "GOST:provided_by", "value": "СЗИ «Заслон»"}]
+
+    def test_fields_absent_when_config_silent(self):
+        bom = self._process()
+        mc = bom["metadata"]["component"]
+        assert "description" not in mc
+        assert "externalReferences" not in mc
+        assert "properties" not in mc
+
+    def test_container_type_and_description_together(self):
+        bom = self._process(type="container", description="Образ веб-интерфейса")
+        mc = bom["metadata"]["component"]
+        assert mc["type"] == "container"
+        assert mc["description"] == "Образ веб-интерфейса"

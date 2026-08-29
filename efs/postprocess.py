@@ -272,6 +272,32 @@ def record_tool(meta):
     meta["tools"] = tools
 
 
+def _apply_product_fields(mc, meta_config):
+    """Проставить поля самого продукта из конфига.
+
+    `efs check` требует от корневого компонента назначение (для образов) и либо
+    ссылку на исходный код, либо `GOST:provided_by`. Задать их больше негде:
+    `--provided-by` относится к leaf-компонентам, а описание, пришедшее от
+    сканера, отбрасывается как машинное. Уже заполненные значения не трогаем —
+    решение, принятое раньше, весомее общего конфига.
+    """
+    description = meta_config.get("description")
+    if description:
+        mc["description"] = description
+
+    vcs = meta_config.get("vcs")
+    if vcs:
+        refs = mc.setdefault("externalReferences", [])
+        if not any(isinstance(ref, dict) and ref.get("type") == "vcs" for ref in refs):
+            refs.append({"type": "vcs", "url": vcs})
+
+    provided_by = meta_config.get("provided_by")
+    if provided_by:
+        props = mc.setdefault("properties", [])
+        if not any(isinstance(p, dict) and p.get("name") == "GOST:provided_by" and p.get("value") for p in props):
+            props.append({"name": "GOST:provided_by", "value": provided_by})
+
+
 def ensure_metadata(bom, app_name, app_version, manufacturer, config=None):
     """Гарантировать наличие обязательных полей metadata."""
     if "metadata" not in bom:
@@ -290,8 +316,10 @@ def ensure_metadata(bom, app_name, app_version, manufacturer, config=None):
 
     meta_config = get_metadata_config(config) if config else {}
 
-    if "type" not in mc:
-        mc["type"] = meta_config.get("type", "application")
+    if meta_config.get("type"):
+        mc["type"] = meta_config["type"]
+    elif "type" not in mc:
+        mc["type"] = "application"
     if app_name:
         mc["name"] = app_name
     elif meta_config.get("name"):
@@ -333,6 +361,8 @@ def ensure_metadata(bom, app_name, app_version, manufacturer, config=None):
 
     for field in ("bom-ref", "purl", "description", "components"):
         mc.pop(field, None)
+
+    _apply_product_fields(mc, meta_config)
 
     # Убрать лишние поля из metadata
     keys_to_remove = [k for k in meta if k not in METADATA_ALLOWED]

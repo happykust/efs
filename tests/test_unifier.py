@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from efs.checker import check_readiness
 from efs.postprocess import process_bom
 from efs.unifier import eval_prop, is_trivy_sbom, run
 
@@ -754,3 +755,49 @@ class TestProcessedSbomIsNotRawReport:
         raw = make_trivy_bom([trivy_component("openssl", "3.0.2", "ref-b", "pkg:deb/openssl@3.0.2")])
         with pytest.raises(SystemExit):
             merge_boms(tmp_path, [processed, raw])
+
+
+class TestMergedListingReadiness:
+    """Сводный перечень собирается готовым к сдаче, если продукт описан в конфиге."""
+
+    def _config(self, components=None, **metadata):
+        base = {"name": "RT.DataVision", "version": "3.1.2", "manufacturer": {"name": "ООО Ромашка"}}
+        base.update(metadata)
+        return {"metadata": base, "components": components or {}}
+
+    def _listing(self, config, component):
+        return process_bom(make_trivy_bom([component]), postprocess_args(), config=config)
+
+    def _front(self, **metadata):
+        return self._listing(
+            self._config({"pkg:npm/lodash": {"vcs": "https://github.com/lodash/lodash"}}, **metadata),
+            trivy_component("lodash", "4.17.21", "ref-a", "pkg:npm/lodash@4.17.21"),
+        )
+
+    def _image(self, **metadata):
+        return self._listing(
+            self._config(
+                {"pkg:deb/openssl": {"vcs": "https://salsa.debian.org/debian/openssl", "source_langs": ["C"]}},
+                type="container",
+                **metadata,
+            ),
+            trivy_component("openssl", "3.0.2", "ref-b", "pkg:deb/openssl@3.0.2"),
+        )
+
+    def test_described_product_passes_readiness(self, tmp_path):
+        front = self._front(description="Веб-интерфейс", vcs="https://gitlab.example.ru/rtdv/frontend")
+        image = self._image(description="Образ платформы", provided_by="СЗИ «Аврора»")
+        assert check_readiness(merge_boms(tmp_path, [front, image])) == 0
+
+    def test_product_without_source_is_reported(self, tmp_path):
+        """У продукта нет ни ссылки на исходники, ни указания на СЗИ — по замечанию на файл."""
+        merged = merge_boms(tmp_path, [self._front(), self._image(description="Образ платформы")])
+        assert check_readiness(merged) == 2
+
+    def test_container_without_description_is_reported(self, tmp_path):
+        merged = merge_boms(tmp_path, [self._image(provided_by="СЗИ «Аврора»")])
+        assert check_readiness(merged) == 1
+
+    def test_provided_by_alone_closes_the_source_requirement(self, tmp_path):
+        merged = merge_boms(tmp_path, [self._image(description="Образ платформы", provided_by="СЗИ «Аврора»")])
+        assert check_readiness(merged) == 0

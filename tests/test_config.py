@@ -7,6 +7,7 @@ import json
 
 import pytest
 
+from efs.config import _purl_without_version as config_purl_without_version
 from efs.config import (
     apply_config_to_component,
     config_to_purl_exclude,
@@ -391,3 +392,38 @@ class TestConfigFilename:
         init_config(make_bom([make_component("requests", "2.32.5")]))
         result = json.loads((tmp_path / ".efs-config.json").read_text(encoding="utf-8"))
         assert result["components"]["pkg:pypi/requests"]["attack_surface"] == "yes"
+
+
+class TestPurlNormalization:
+    """Нормализация purl в конфиге должна совпадать с той, что применяет постобработка."""
+
+    @pytest.mark.parametrize(
+        ("purl", "expected"),
+        [
+            ("pkg:pypi/requests@2.32.5", "pkg:pypi/requests"),
+            ("pkg:npm/@babel/runtime@7.9.0", "pkg:npm/@babel/runtime"),
+            ("pkg:npm/@superset-ui/core@0.20.4", "pkg:npm/@superset-ui/core"),
+            ("pkg:npm/%40babel/runtime@7.9.0", "pkg:npm/%40babel/runtime"),
+            ("pkg:golang/github.com/gin-gonic/gin@v1.9.1", "pkg:golang/github.com/gin-gonic/gin"),
+            ("pkg:npm/ajv@8.20.0?arch=x64", "pkg:npm/ajv"),
+            ("pkg:npm/@2toad/profanity@2.0.0", "pkg:npm/@2toad/profanity"),
+        ],
+    )
+    def test_version_stripped_without_losing_scope(self, purl, expected):
+        assert config_purl_without_version(purl) == expected
+
+    def test_scoped_packages_do_not_share_one_key(self):
+        """Схлопывание скоупа в pkg:npm/ применило бы настройки одного пакета ко всем npm."""
+        first = config_purl_without_version("pkg:npm/@superset-ui/core@0.20.4")
+        second = config_purl_without_version("pkg:npm/@rtdv/plugin-chart-kepler@1.0.0")
+        assert first != second
+        assert first != "pkg:npm/"
+
+    def test_lookup_finds_scoped_component(self):
+        cfg = {"components": {"pkg:npm/@superset-ui/core": {"vcs": "https://github.com/apache/superset"}}}
+        assert get_vcs(cfg, "pkg:npm/@superset-ui/core@0.20.4") == "https://github.com/apache/superset"
+
+    def test_exclude_of_scoped_package_does_not_leak(self):
+        cfg = {"components": {"pkg:npm/@superset-ui/core": {"exclude": True}}}
+        assert is_excluded(cfg, "pkg:npm/@superset-ui/core@0.20.4") is True
+        assert is_excluded(cfg, "pkg:npm/lodash@4.17.21") is False

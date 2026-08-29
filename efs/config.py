@@ -13,7 +13,7 @@ import json
 import logging
 from pathlib import Path
 
-from .utils import get_prop
+from .utils import get_prop, purl_without_version
 
 _CONFIG_FILENAME = ".efs-config.json"
 _LEGACY_CONFIG_FILENAME = ".sbom-config.json"
@@ -45,9 +45,12 @@ _GOST_DEFAULT_VALUE = "no"
 
 
 def _purl_without_version(purl):
-    """Убрать версию из purl: pkg:pypi/pytest@8.0.0 → pkg:pypi/pytest."""
-    at = purl.find("@")
-    return purl[:at] if at != -1 else purl
+    """Убрать версию из purl: pkg:pypi/pytest@8.0.0 → pkg:pypi/pytest.
+
+    Общая с постобработкой реализация: она не путает версию со скоупом npm
+    (`@babel/runtime`), понимает закодированный `%40` и отбрасывает квалификаторы.
+    """
+    return purl_without_version(purl)
 
 
 def normalize_source_langs(value):

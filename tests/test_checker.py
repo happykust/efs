@@ -352,3 +352,94 @@ class TestUniqueness:
         start = time.perf_counter()
         checker.run(args_for(path, errors=1))
         assert time.perf_counter() - start < 10
+
+
+class TestReadinessUnit:
+    """check_readiness проверяется отдельно от схемы: она даёт понятные замечания и работает для контейнеров."""
+
+    def _component(self, **overrides):
+        comp = {
+            "type": "library",
+            "name": "requests",
+            "version": "2.32.5",
+            "purl": "pkg:pypi/requests@2.32.5",
+            "properties": [
+                {"name": "GOST:attack_surface", "value": "no"},
+                {"name": "GOST:security_function", "value": "no"},
+                {"name": "GOST:source_langs", "value": "Python"},
+            ],
+            "externalReferences": [{"type": "vcs", "url": "https://github.com/psf/requests"}],
+        }
+        comp.update(overrides)
+        return comp
+
+    @pytest.mark.parametrize("prop_name", ["GOST:attack_surface", "GOST:security_function"])
+    def test_each_required_gost_prop_checked(self, prop_name, capsys):
+        comp = self._component()
+        comp["properties"] = [p for p in comp["properties"] if p["name"] != prop_name]
+        assert checker.check_readiness(make_bom([comp])) == 1
+        assert prop_name in capsys.readouterr().out
+
+    def test_ready_component_has_no_issues(self, capsys):
+        assert checker.check_readiness(make_bom([self._component()])) == 0
+
+    def test_nested_component_checked(self, capsys):
+        nested = self._component(name="вложенный")
+        nested["properties"] = [p for p in nested["properties"] if p["name"] != "GOST:source_langs"]
+        outer = self._component(name="внешний", components=[nested])
+        assert checker.check_readiness(make_bom([outer])) == 1
+        assert "вложенный" in capsys.readouterr().out
+
+    def test_third_level_checked(self, capsys):
+        deep = self._component(name="глубокий")
+        deep["properties"] = [p for p in deep["properties"] if p["name"] != "GOST:attack_surface"]
+        middle = self._component(name="средний", components=[deep])
+        outer = self._component(name="внешний", components=[middle])
+        assert checker.check_readiness(make_bom([outer])) == 1
+        assert "глубокий" in capsys.readouterr().out
+
+    def test_website_is_not_source_evidence(self, capsys):
+        """Домашняя страница — не адрес исходного кода."""
+        comp = self._component(externalReferences=[{"type": "website", "url": "https://example.org"}])
+        assert checker.check_readiness(make_bom([comp])) == 1
+        assert "репозиторий" in capsys.readouterr().out.lower()
+
+    @pytest.mark.parametrize("url", ["TODO", "", "sbom-updater_generated_placeholder:"])
+    def test_placeholder_urls_count_as_missing(self, url, capsys):
+        comp = self._component(externalReferences=[{"type": "vcs", "url": url}])
+        assert checker.check_readiness(make_bom([comp])) == 1
+
+    def test_provided_by_replaces_repository(self, capsys):
+        comp = self._component(externalReferences=[])
+        comp["properties"].append({"name": "GOST:provided_by", "value": "КриптоПро CSP"})
+        assert checker.check_readiness(make_bom([comp])) == 0
+
+    def test_blank_container_purpose_reported(self, capsys):
+        container = {
+            "type": "container",
+            "name": "app-image",
+            "version": "1.0.0",
+            "description": "   ",
+            "properties": [
+                {"name": "GOST:attack_surface", "value": "no"},
+                {"name": "GOST:security_function", "value": "no"},
+                {"name": "GOST:source_langs", "value": "C"},
+                {"name": "GOST:provided_by", "value": "ООО Поставщик"},
+            ],
+        }
+        assert checker.check_readiness(make_bom([container])) == 1
+        assert "назначение" in capsys.readouterr().out.lower()
+
+    def test_null_properties_do_not_crash(self, capsys):
+        comp = self._component(properties=None)
+        checker.check_readiness(make_bom([comp]))
+        assert "Traceback" not in capsys.readouterr().out
+
+    def test_limit_applies_to_warnings(self, capsys):
+        components = []
+        for index in range(5):
+            comp = self._component(name=f"lib{index}", purl=f"pkg:pypi/lib{index}@1.0")
+            comp["properties"] = [p for p in comp["properties"] if p["name"] != "GOST:source_langs"]
+            components.append(comp)
+        assert checker.check_readiness(make_bom(components), limit=2) == 5
+        assert capsys.readouterr().out.count("WARNING:") == 2

@@ -8,6 +8,7 @@ import re
 import subprocess
 import urllib.parse
 from collections import Counter
+from urllib.parse import unquote
 
 import platformdirs
 import requests
@@ -349,6 +350,43 @@ def is_archive_url(session, url, timeout=10):
     finally:
         if "response" in locals():
             response.close()
+
+
+_VERSION_TAIL = re.compile(r"^v?\d")
+_PURL_SEP = re.compile(r"@|%40", re.IGNORECASE)
+
+
+def purl_strip_qualifiers(purl):
+    """Отбросить квалификаторы и якорь: pkg:npm/ajv@8.20.0?arch=x64 → pkg:npm/ajv@8.20.0."""
+    return purl.split("?", 1)[0].split("#", 1)[0]
+
+
+def purl_without_version(purl):
+    """Убрать версию из purl: pkg:pypi/pytest@8.0.0 → pkg:pypi/pytest.
+
+    Разделитель ищем с конца и в обеих формах — `@` и `%40`: trivy кодирует его
+    по-разному даже в одном файле (`color-name%401.1.3` рядом с `runtime@7.9.0`).
+    Отбрасываем только то, что похоже на версию: у npm-пакета со скоупом первый
+    разделитель принадлежит имени (pkg:npm/@babel/runtime@7.9.0), а для вложенных
+    зависимостей trivy пишет в purl весь путь
+    (pkg:npm/@babel/highlight/chalk@chalk@2.4.2 — тут `@chalk` тоже часть имени).
+
+    Возвращаем срез ИСХОДНОЙ строки: результат идёт ключом в конфиг, и приведение
+    `%40`→`@` плодило бы дубли рядом с уже существующими. Для сравнения — `purl_key`.
+    """
+    base = purl_strip_qualifiers(purl)
+    for match in reversed(list(_PURL_SEP.finditer(base))):
+        start = match.start()
+        if start == 0 or base[start - 1] == "/":
+            continue
+        if _VERSION_TAIL.match(unquote(base[match.end() :])):
+            return base[:start]
+    return base
+
+
+def purl_key(purl):
+    """purl, приведённый для СРАВНЕНИЯ: скоуп npm пишут и `%40babel`, и `@babel`."""
+    return unquote(purl_strip_qualifiers(purl))
 
 
 def get_prop(arr, name):

@@ -21,9 +21,10 @@ htmlcov/
 .ruff_cache/
 .mypy_cache/
 
-# IDE
+# IDE и рабочие каталоги агентов
 .idea/
 .vscode/
+.claude/
 
 # Локальные артефакты SBOM и конфиги
 *.sbom.json
